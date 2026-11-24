@@ -11,3 +11,17 @@
     outline-offset: 3px;
   }
 }
+
+/* Stop names on the editor map */
+.leaflet-tooltip.stop-label {
+  background: #0a1324;
+  color: #f4f7fc;
+  border: 1px solid rgba(169, 212, 245, 0.35);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font: 700 12px "Nunito", system-ui, sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.leaflet-tooltip.stop-label::before {
+  display: none;
+}

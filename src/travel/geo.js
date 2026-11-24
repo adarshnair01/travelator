@@ -78,6 +78,21 @@ export function unwrapLeg(a, b) {
     return { ...b, lng };
 }
 
+// Shift a route's longitudes to match its (unwrapped) start, point by point,
+// so a road that crosses the date line stays continuous.
+function unwrapRoute(from, route) {
+    const out = [];
+    let prev = from.lng;
+    route.forEach(([lng, lat]) => {
+        let x = lng;
+        while (x - prev > 180) x -= 360;
+        while (x - prev < -180) x += 360;
+        out.push([x, lat]);
+        prev = x;
+    });
+    return out;
+}
+
 // ---- Timeline -------------------------------------------------------------
 
 export const TIMING = {
@@ -115,7 +130,8 @@ export function buildTimeline(rawStops) {
             const km = distanceKm(from, stop);
             const mode = MODES[stop.mode] ? stop.mode : 'car';
             const legCam = fitCamera([from, to], { pad: mode === 'flight' ? 220 : 180 });
-            push({ type: 'leg', index: i, from, to, mode, km, kmBefore: travelled, dur: legFrames(km), cam: legCam });
+            const route = mode !== 'flight' && Array.isArray(stop.route) && stop.route.length > 1 ? unwrapRoute(from, stop.route) : null;
+            push({ type: 'leg', index: i, from, to, mode, km, kmBefore: travelled, dur: legFrames(km), cam: legCam, route });
             travelled += km;
             byMode[mode] += km;
         }
@@ -192,8 +208,9 @@ export const legSeed = (a, b) =>
  *  - train: a gentle sweeping curve, like a rail line
  * Bends taper to zero at both ends so the line always meets its stops.
  * upIsNegativeY: true on screen (y grows down), false for latitude/longitude.
+ * amp scales the bends of car and train curves (negative mirrors them).
  */
-export function curvePoints(p0, p1, mode, seed, { samples = 120, upIsNegativeY = true } = {}) {
+export function curvePoints(p0, p1, mode, seed, { samples = 120, upIsNegativeY = true, amp: ampScale = 1 } = {}) {
     const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
     const len = Math.hypot(dx, dy);
     if (len < 1e-9) return [p0, p1];
@@ -215,7 +232,7 @@ export function curvePoints(p0, p1, mode, seed, { samples = 120, upIsNegativeY =
         : [[1.2, 0.08], [2.6, 0.035], [5, 0.008]]; // a road's big bends, smaller turns and a little texture
     const parts = waves.map(([f, amp]) => ({
         f: f * (0.8 + 0.4 * rnd()),
-        amp: amp * (rnd() < 0.5 ? -1 : 1),
+        amp: amp * ampScale * (rnd() < 0.5 ? -1 : 1),
         ph: rnd() * Math.PI * 2,
     }));
     for (let k = 0; k <= samples; k++) {
@@ -271,7 +288,9 @@ export function pointBack(pts, dist) {
 }
 
 // Screen-space points of a leg, drawn up to `progress` of its length.
+// Car and train legs use their land-following route when the editor has found one.
 export function legPath(cam, seg, progress) {
+    if (seg.route) return trimByLength(seg.route.map(([lng, lat]) => project(cam, lng, lat)), progress);
     const a = project(cam, seg.from.lng, seg.from.lat);
     const b = project(cam, seg.to.lng, seg.to.lat);
     const full = curvePoints(a, b, seg.mode, legSeed(seg.from, seg.to));

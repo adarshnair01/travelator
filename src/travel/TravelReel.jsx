@@ -55,6 +55,45 @@ const MapLayer = ({ cam }) => {
 };
 
 // ---------------------------------------------------------------------------
+// Stop names next to their markers. Labels try the right, left, top and bottom of
+// their marker and are dropped when every spot would overlap another label or marker.
+
+const LABEL_FONT = 30;
+const LABEL_H = 48;
+const labelText = (name) => (name.length > 24 ? `${name.slice(0, 23)}…` : name);
+// Rough text width for the system font at this size (no DOM measuring inside the renderer)
+const textWidth = (t) => [...t].reduce((w, ch) => w + (/[A-Z]/.test(ch) ? 0.68 : /[a-z0-9 ]/.test(ch) ? 0.55 : 0.75), 0) * LABEL_FONT;
+
+function layoutLabels(markers, stops, reached, activeStop) {
+    const boxes = markers.map(({ x, y }) => ({ x: x - 30, y: y - 30, w: 60, h: 60, marker: true }));
+    const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    // Places in the frame's safe area (clear of the title and stats bands)
+    const fits = (b) => b.x >= 16 && b.x + b.w <= REEL.width - 16 && b.y >= 250 && b.y + b.h <= REEL.height - 260;
+    const order = [...markers].sort((a, b) => {
+        const rank = (m) => (m.i === activeStop ? 0 : reached[m.i] ? 1 : 2);
+        return rank(a) - rank(b) || b.i - a.i;
+    });
+    const out = [];
+    order.forEach(({ i, x, y }) => {
+        const text = labelText(stops[i].name || `Stop ${i + 1}`);
+        const w = textWidth(text) + 36;
+        const spots = [
+            { x: x + 40, y: y - LABEL_H / 2 },
+            { x: x - 40 - w, y: y - LABEL_H / 2 },
+            { x: x - w / 2, y: y - 44 - LABEL_H },
+            { x: x - w / 2, y: y + 44 },
+        ];
+        const pick = spots
+            .map((p) => ({ ...p, w, h: LABEL_H }))
+            .find((b) => fits(b) && !boxes.some((o) => (o.marker ? overlaps(b, o) : overlaps(b, { x: o.x - 8, y: o.y - 8, w: o.w + 16, h: o.h + 16 }))));
+        if (!pick) return;
+        boxes.push(pick);
+        out.push({ ...pick, i, text, on: reached[i] });
+    });
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Route layer: finished legs, the leg in progress, stop markers and the vehicle.
 
 const RouteLayer = ({ timeline, frame, cam }) => {
@@ -83,6 +122,12 @@ const RouteLayer = ({ timeline, frame, cam }) => {
     });
     const activeStop = current.type === 'stop' ? current.index : null;
 
+    const markers = stops
+        .map((st, i) => { const [x, y] = project(cam, st.lng, st.lat); return { i, x, y }; })
+        .filter(({ x, y }) => x > -60 && x < REEL.width + 60 && y > -60 && y < REEL.height + 60);
+    // No names during the intro: the trip title has the screen to itself
+    const labels = current.type === 'intro' ? [] : layoutLabels(markers, stops, reached, activeStop);
+
     return (
         <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
             {drawn.map(({ leg, d }) => {
@@ -108,9 +153,14 @@ const RouteLayer = ({ timeline, frame, cam }) => {
                 );
             })}
 
-            {stops.map((s, i) => {
-                const [x, y] = project(cam, s.lng, s.lat);
-                if (x < -60 || x > REEL.width + 60 || y < -60 || y > REEL.height + 60) return null;
+            {labels.map((l) => (
+                <g key={`label-${l.i}`} opacity={l.on ? 1 : 0.75}>
+                    <rect x={l.x} y={l.y} width={l.w} height={LABEL_H} rx={LABEL_H / 2} fill={C.panel} stroke={l.on ? C.gold : '#4c6187'} strokeWidth={2.5} />
+                    <text x={l.x + l.w / 2} y={l.y + LABEL_H / 2 + 10} textAnchor="middle" fontSize={LABEL_FONT} fontWeight={800} fontFamily={FONT} fill={l.on ? C.text : C.muted}>{l.text}</text>
+                </g>
+            ))}
+
+            {markers.map(({ i, x, y }) => {
                 const on = reached[i];
                 const active = activeStop === i;
                 const pulse = active ? 1 + 0.25 * Math.sin((frame - current.start) / 5) : 1;

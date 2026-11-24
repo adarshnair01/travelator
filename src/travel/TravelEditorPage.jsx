@@ -1,13 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
     Plane, TrainFront, Car, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
-    Download, ArrowLeft, Loader2, MapPin, Pencil,
+    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus,
 } from 'lucide-react';
-import { searchPlaces, reverseLookup } from './geocode';
+import { searchPlaces, reverseLookup, famousNearby } from './geocode';
+import { getRoute, routeKey } from './routes';
 import { TravelReel } from './TravelReel';
 import { REEL, MODES, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
 import { loadWorld } from './world';
@@ -25,19 +26,29 @@ function loadDraft() {
     try {
         const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
         if (d && Array.isArray(d.stops)) {
-            return { title: d.title || 'My trip', stops: d.stops.map((s) => ({ ...s, id: newId(), photos: [] })) };
+            return {
+                title: d.title || 'My trip',
+                stops: d.stops.map((s) => ({ ...s, id: newId(), photos: [] })),
+                routes: d.routes && typeof d.routes === 'object' ? d.routes : {},
+            };
         }
     } catch {
         // ignore a broken or blocked draft
     }
-    return { title: 'My trip', stops: [] };
+    return { title: 'My trip', stops: [], routes: {} };
 }
 
-function saveDraft(title, stops) {
+// The route key of each leg (car and train only), indexed by the stop it arrives at.
+const legKeys = (stops) => stops.map((s, i) => (i > 0 && (s.mode === 'car' || s.mode === 'train') ? routeKey(stops[i - 1], s, s.mode) : null));
+
+function saveDraft(title, stops, routes) {
+    const keep = {};
+    legKeys(stops).forEach((k) => { if (k && routes[k]) keep[k] = routes[k]; });
     try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
             title,
             stops: stops.map(({ name, lat, lng, mode }) => ({ name, lat, lng, mode })),
+            routes: keep,
         }));
     } catch {
         // storage full or blocked: the editor still works
@@ -91,7 +102,7 @@ const FitToStops = ({ stops, focus }) => {
     return null;
 };
 
-const TripMap = ({ stops, onPick, adding, focus }) => (
+const TripMap = ({ stops, routes, onPick, adding, focus }) => (
     <MapContainer center={[20, 78]} zoom={4} worldCopyJump className="h-full w-full" style={{ background: '#0a1324' }}>
         <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -101,9 +112,10 @@ const TripMap = ({ stops, onPick, adding, focus }) => (
         <ClickToAdd onPick={onPick} disabled={adding || stops.length >= MAX_STOPS} />
         <FitToStops stops={stops} focus={focus} />
         {stops.slice(1).map((s, i) => {
-            // Same curve shapes as the reel, drawn in longitude/latitude
+            // The leg's land-following route once found; until then (and for flights) the drawn curve
             const prev = stops[i];
-            const positions = curvePoints([prev.lng, prev.lat], [s.lng, s.lat], s.mode, legSeed(prev, s), { samples: 80, upIsNegativeY: false })
+            const route = s.mode !== 'flight' && routes[routeKey(prev, s, s.mode)];
+            const positions = (route || curvePoints([prev.lng, prev.lat], [s.lng, s.lat], s.mode, legSeed(prev, s), { samples: 80, upIsNegativeY: false }))
                 .map(([lng, lat]) => [lat, lng]);
             const color = MODES[s.mode]?.color || '#fff';
             return (
@@ -114,7 +126,9 @@ const TripMap = ({ stops, onPick, adding, focus }) => (
             );
         })}
         {stops.map((s, i) => (
-            <Marker key={s.id} position={[s.lat, s.lng]} icon={markerIcon(i + 1, i === stops.length - 1)} title={s.name} />
+            <Marker key={s.id} position={[s.lat, s.lng]} icon={markerIcon(i + 1, i === stops.length - 1)} title={s.name}>
+                <Tooltip permanent direction="right" offset={[18, 0]} className="stop-label">{s.name}</Tooltip>
+            </Marker>
         ))}
     </MapContainer>
 );
@@ -234,7 +248,7 @@ const ReelView = ({ title, stops, onBack }) => {
 
     const inputProps = useMemo(() => ({
         title,
-        stops: stops.map((s) => ({ name: s.name, lat: s.lat, lng: s.lng, mode: s.mode, photos: s.photos.map((p) => p.url) })),
+        stops: stops.map((s) => ({ name: s.name, lat: s.lat, lng: s.lng, mode: s.mode, route: s.route || null, photos: s.photos.map((p) => p.url) })),
     }), [title, stops]);
     const duration = useMemo(() => buildTimeline(inputProps.stops).durationInFrames, [inputProps]);
 
@@ -359,12 +373,56 @@ const ReelView = ({ title, stops, onBack }) => {
     );
 };
 
+// ---- Famous spots near the latest stop ------------------------------------------
+
+const FamousSpots = ({ near, onAdd, disabled }) => {
+    const [state, setState] = useState({ key: null, spots: [], loading: false });
+    const key = near ? `${near.lat},${near.lng}` : null;
+    useEffect(() => {
+        if (!near) return undefined;
+        const controller = new AbortController();
+        setState({ key, spots: [], loading: true });
+        famousNearby(near.lat, near.lng, controller.signal)
+            .then((spots) => setState({ key, spots, loading: false }))
+            .catch(() => { if (!controller.signal.aborted) setState({ key, spots: [], loading: false }); });
+        return () => controller.abort();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key]);
+    if (!near || state.key !== key || (!state.loading && !state.spots.length)) return null;
+    return (
+        <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-text-muted">
+                <Landmark size={12} aria-hidden="true" /> Famous spots near {near.name}
+            </p>
+            {state.loading ? (
+                <p className="flex items-center gap-2 text-xs text-text-muted"><Loader2 size={12} className="animate-spin" aria-hidden="true" /> Finding sights…</p>
+            ) : (
+                <ul className="flex flex-wrap gap-1.5" aria-label={`Famous spots near ${near.name}`}>
+                    {state.spots.map((p) => (
+                        <li key={`${p.name}-${p.lat}`}>
+                            <button
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => onAdd(p)}
+                                className="flex items-center gap-1 rounded-full border border-frost/20 px-3 py-1 text-xs font-bold text-snow hover:border-gold hover:text-gold disabled:opacity-40"
+                            >
+                                <Plus size={12} aria-hidden="true" /> {p.name}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+};
+
 // ---- Page --------------------------------------------------------------------
 
 export default function TravelEditorPage() {
     const initial = useMemo(loadDraft, []);
     const [title, setTitle] = useState(initial.title);
     const [stops, setStops] = useState(initial.stops);
+    const [routes, setRoutes] = useState(initial.routes);
     const [nextMode, setNextMode] = useState('car');
     const [query, setQuery] = useState('');
     const [results, setResults] = useState([]);
@@ -375,7 +433,22 @@ export default function TravelEditorPage() {
     const [view, setView] = useState('edit');
 
     useEffect(() => { document.title = 'Travelator · Trip reel maker'; }, []);
-    useEffect(() => { saveDraft(title, stops); }, [title, stops]);
+    useEffect(() => { saveDraft(title, stops, routes); }, [title, stops, routes]);
+
+    // Find a land-following route for every car and train leg that doesn't have one yet
+    const keys = legKeys(stops);
+    const missing = keys.filter((k) => k && !routes[k]);
+    const missingSig = missing.join('|');
+    useEffect(() => {
+        // getRoute caches by key, so asking again while a leg is still being traced is free
+        keys.forEach((k, i) => {
+            if (!k || routes[k]) return;
+            getRoute(stops[i - 1], stops[i], stops[i].mode)
+                .then((pts) => { if (pts) setRoutes((prev) => ({ ...prev, [k]: pts })); })
+                .catch(() => { /* getRoute falls back to a drawn curve, so this is not expected */ });
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [missingSig]);
 
     const addStop = useCallback((place) => {
         setStops((prev) => {
@@ -460,7 +533,7 @@ export default function TravelEditorPage() {
             </header>
 
             {view === 'reel' ? (
-                <ReelView title={title} stops={stops} onBack={() => setView('edit')} />
+                <ReelView title={title} stops={stops.map((s, i) => ({ ...s, route: keys[i] ? routes[keys[i]] : null }))} onBack={() => setView('edit')} />
             ) : (
                 <div className="grid md:h-[calc(100vh-57px)] md:grid-cols-[400px_1fr]">
                     <aside className="order-2 flex flex-col gap-4 overflow-y-auto p-4 md:order-1">
@@ -484,7 +557,7 @@ export default function TravelEditorPage() {
                                     id="place-search"
                                     value={query}
                                     onChange={(e) => setQuery(e.target.value)}
-                                    placeholder="Search a city or place"
+                                    placeholder="Search a city, landmark or place"
                                     className="min-w-0 flex-1 rounded-xl border border-frost/15 bg-night-card px-3 py-2 outline-none focus:border-gold"
                                     disabled={stops.length >= MAX_STOPS}
                                 />
@@ -516,6 +589,8 @@ export default function TravelEditorPage() {
                             </ul>
                         )}
 
+                        <FamousSpots near={stops[stops.length - 1]} onAdd={addStop} disabled={stops.length >= MAX_STOPS} />
+
                         <p aria-live="polite" className="min-h-[1rem] text-xs text-frost">{message}</p>
 
                         {stops.length > 0 && (
@@ -546,15 +621,16 @@ export default function TravelEditorPage() {
                         <button
                             type="button"
                             onClick={() => setView('reel')}
-                            disabled={stops.length < 2}
+                            disabled={stops.length < 2 || missing.length > 0}
                             className="sticky bottom-0 mt-auto flex items-center justify-center gap-2 rounded-full bg-holly px-6 py-3 font-bold text-snow shadow-lg hover:bg-holly-deep disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                            <Film size={18} aria-hidden="true" /> {stops.length < 2 ? 'Add at least 2 places' : 'Done, make my reel'}
+                            {missing.length > 0 && stops.length >= 2 ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <Film size={18} aria-hidden="true" />}
+                            {stops.length < 2 ? 'Add at least 2 places' : missing.length > 0 ? 'Tracing roads and rails…' : 'Done, make my reel'}
                         </button>
                     </aside>
 
                     <div className="order-1 h-[50vh] md:order-2 md:h-full">
-                        <TripMap stops={stops} onPick={onMapPick} adding={adding} focus={focus} />
+                        <TripMap stops={stops} routes={routes} onPick={onMapPick} adding={adding} focus={focus} />
                     </div>
                 </div>
             )}
