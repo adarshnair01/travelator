@@ -415,7 +415,7 @@ const Outro = ({ title, timeline, frame }) => {
                     })}
                 </div>
             </div>
-            <div style={{ color: C.muted, fontSize: 30, fontWeight: 800, letterSpacing: 4, marginTop: 30, opacity: clamp01(enter) }}>Travelator</div>
+            <div style={{ color: C.muted, fontSize: 30, fontWeight: 800, letterSpacing: 4, marginTop: 30, opacity: clamp01(enter) }}>Travelator by Adarsh</div>
         </AbsoluteFill>
     );
 };

@@ -6,7 +6,9 @@ import react from '@vitejs/plugin-react'
 // this keeps things working even if that file is ever lost.
 const clean = (name) => (name || 'chunk').replace(/^_+/, '') || 'chunk'
 
+// Served from adarshnair.in/travelator/ (the travel blog's deploy builds this repo into that folder).
 export default defineConfig({
+  base: '/travelator/',
   plugins: [react()],
   build: {
     rollupOptions: {

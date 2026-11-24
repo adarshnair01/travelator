@@ -2,7 +2,7 @@
 
 A tool for creating travel montage videos.
 
-Turn a trip into a vertical travel reel, right in the browser: **https://travelator.adarshnair.in**
+Turn a trip into a vertical travel reel, right in the browser: **https://adarshnair.in/travelator/**
 
 1. Search for each place you visited, or click it on the map.
 2. Pick how you got there from the last stop: car, train or flight.
@@ -34,6 +34,8 @@ npm run lint
 npm run build
 ```
 
-Pushing to `main` builds the site and deploys it to GitHub Pages (`.github/workflows/deploy.yml`). `public/CNAME` sets the custom domain.
+The app is built for the `/travelator/` folder (`base` in `vite.config.js`). It goes live through the travel blog: the blog's deploy workflow in [adarshnair01/travel](https://github.com/adarshnair01/travel) checks out this repo, builds it and publishes it at adarshnair.in/travelator/. The blog rebuilds every day at 00:15 UTC, so a push here is live by the next day; run the blog's "Deploy site" workflow to publish sooner.
+
+Pushes and pull requests here run lint and build (`.github/workflows/check.yml`).
 
 Map data © OpenStreetMap contributors.
