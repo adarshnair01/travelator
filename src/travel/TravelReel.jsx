@@ -243,38 +243,69 @@ const CarArt = ({ frame }) => {
     );
 };
 
-// Cartoon motorbike with its rider, seen from the side, facing right.
+// Cartoon streetfighter motorbike with a tucked-in rider, seen from the side, facing right:
+// chunky orange tank, short sharp tail, exposed trellis frame, orange forks, split headlight,
+// alloy wheels and speed lines.
+const BIKE_ORANGE = '#ff7a1a';
+const INK = '#0b1628';
+const BLACK = '#141a24';
 const BikeArt = ({ frame }) => {
-    const bob = Math.sin(frame * 1.1) * 1.4;
-    const spin = (frame * 28) % 360;
+    const lean = Math.sin(frame * 0.5) * 1.2; // a little throttle rock
+    const bob = Math.sin(frame * 1.3) * 0.9;
+    const spin = (frame * 32) % 360;
     const wheel = (cx) => (
-        <g transform={`translate(${cx} 17)`}>
-            <circle r={13} fill="#1d2433" stroke="#0b1628" strokeWidth={3} />
-            <circle r={5} fill="#cfd8e3" />
-            <g transform={`rotate(${spin})`} stroke="#cfd8e3" strokeWidth={2} strokeLinecap="round">
-                <line x1={-9} y1={0} x2={9} y2={0} />
-                <line x1={0} y1={-9} x2={0} y2={9} />
+        <g transform={`translate(${cx} 16)`}>
+            <circle r={14} fill={BLACK} stroke={INK} strokeWidth={2.5} />
+            <circle r={9} fill="none" stroke={BIKE_ORANGE} strokeWidth={2.5} />
+            <g transform={`rotate(${spin})`} stroke={BIKE_ORANGE} strokeWidth={2.2} strokeLinecap="round">
+                {[0, 72, 144, 216, 288].map((r) => <line key={r} x1={0} y1={0} x2={0} y2={-8.5} transform={`rotate(${r})`} />)}
             </g>
+            <circle r={2.8} fill="#cfd8e3" />
         </g>
     );
+    const streak = (y, len, phase) => {
+        const t = (frame * 0.1 + phase) % 1;
+        const x = -38 - t * 10;
+        return <line key={phase} x1={x} y1={y} x2={x - len} y2={y} stroke="#fff" strokeWidth={3} strokeLinecap="round" opacity={0.85 * (1 - t)} />;
+    };
     return (
         <g>
-            <ellipse cx={1} cy={31} rx={38} ry={4.5} fill="#000" opacity={0.25} />
-            {wheel(-25)}
-            {wheel(26)}
-            <g transform={`translate(0 ${bob.toFixed(2)})`}>
-                {/* exhaust, body and tank */}
-                <path d="M-36 9 L-14 9" stroke="#8a95a8" strokeWidth={5} strokeLinecap="round" />
-                <path d="M-30 4 Q-28 -6 -16 -6 L6 -8 Q16 -16 24 -10 L30 2 Q24 12 12 12 L-22 12 Q-31 12 -30 4 Z"
-                    fill={MODES.bike.color} stroke="#0b1628" strokeWidth={3.5} strokeLinejoin="round" />
-                <path d="M-24 -6 Q-20 -12 -4 -11 L2 -8 L-24 -4 Z" fill="#1d2433" stroke="#0b1628" strokeWidth={2.5} strokeLinejoin="round" />
-                <path d="M24 -10 L30 -24" stroke="#0b1628" strokeWidth={4} strokeLinecap="round" />
-                <circle cx={33} cy={-6} r={5} fill={C.gold} stroke="#0b1628" strokeWidth={2} />
-                {/* rider: body, arm to the handlebar, helmet with visor */}
-                <path d="M-12 -10 Q-10 -26 0 -30" stroke="#2a5d8f" strokeWidth={10} strokeLinecap="round" fill="none" />
-                <path d="M0 -26 Q14 -26 28 -23" stroke="#2a5d8f" strokeWidth={6} strokeLinecap="round" fill="none" />
-                <circle cx={3} cy={-38} r={10} fill={C.gold} stroke="#0b1628" strokeWidth={3} />
-                <path d="M6 -42 Q14 -40 13 -34 L7 -34 Z" fill="#bfe6ff" stroke="#0b1628" strokeWidth={2} strokeLinejoin="round" />
+            {[streak(-18, 9, 0), streak(-6, 14, 0.35), streak(6, 8, 0.7)]}
+            <ellipse cx={0} cy={31} rx={40} ry={4} fill="#000" opacity={0.25} />
+            <g transform={`rotate(${lean.toFixed(2)} 0 16)`}>
+                {/* swingarm, exhaust, forks */}
+                <path d="M-27 16 L-6 7" stroke="#2b3240" strokeWidth={5} strokeLinecap="round" />
+                <path d="M6 12 L-13 14" stroke="#8a95a8" strokeWidth={5.5} strokeLinecap="round" />
+                <path d="M19 -15 L23 -1" stroke={BIKE_ORANGE} strokeWidth={5} strokeLinecap="round" />
+                <path d="M23 -1 L27 16" stroke="#cfd8e3" strokeWidth={4} strokeLinecap="round" />
+                {wheel(-27)}
+                {wheel(27)}
+                <path d="M18 3 Q27 -1 36 5" stroke={BIKE_ORANGE} strokeWidth={3} strokeLinecap="round" fill="none" />
+                <g transform={`translate(0 ${bob.toFixed(2)})`}>
+                    {/* engine block with fins, trellis frame */}
+                    <path d="M-8 -3 L12 -3 L14 10 L-5 12 Z" fill="#3a4252" stroke={INK} strokeWidth={2.5} strokeLinejoin="round" />
+                    <path d="M-4 2 L11 2 M-3 6 L12 6" stroke="#5b6576" strokeWidth={1.6} />
+                    <polyline points="-21,-8 -15,1 -9,-7 -3,1 3,-5" fill="none" stroke={BIKE_ORANGE} strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round" />
+                    {/* short, sharp upswept tail and the stepped seat */}
+                    <path d="M-19 -12 L-35 -20 L-33 -15 L-22 -8 Z" fill={BIKE_ORANGE} stroke={INK} strokeWidth={2.5} strokeLinejoin="round" />
+                    <path d="M-7 -11 L-21 -13 L-23 -9 L-7 -7 Z" fill={BLACK} stroke={INK} strokeWidth={2} strokeLinejoin="round" />
+                    {/* chunky tank with black shroud and a white flash */}
+                    <path d="M-8 -10 L1 -18 L14 -19 L21 -9 L16 -2 L-6 -3 Z" fill={BIKE_ORANGE} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
+                    <path d="M9 -14 L19 -10 L15 -3 L7 -4 Z" fill={BLACK} />
+                    <path d="M-3 -10 L8 -15" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+                    {/* split headlight */}
+                    <path d="M20 -20 L27 -18 L29 -7 L22 -6 Z" fill={BLACK} stroke={INK} strokeWidth={2.5} strokeLinejoin="round" />
+                    <path d="M23.5 -16 L26.5 -15 L27 -12.5 L24 -13 Z" fill="#fff8d6" />
+                    <path d="M24.5 -10.5 L27.5 -10 L28 -8 L25 -8 Z" fill="#fff8d6" />
+                    {/* rider tucked forward: leg, jacket with stripe, arm, helmet with stripe and visor */}
+                    <path d="M-13 -14 L1 -11 L-5 1" stroke="#2b3240" strokeWidth={5.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    <path d="M-14 -14 L5 -28" stroke={BLACK} strokeWidth={12} strokeLinecap="round" />
+                    <path d="M-11 -19.5 L4 -30" stroke={BIKE_ORANGE} strokeWidth={2.4} strokeLinecap="round" />
+                    <path d="M5 -27 L11 -21 L18 -21" stroke={BLACK} strokeWidth={4.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    <circle cx={12} cy={-32} r={8.5} fill={BLACK} stroke={INK} strokeWidth={2.5} />
+                    <path d="M5 -37 Q12 -42 19 -35" stroke={BIKE_ORANGE} strokeWidth={2.8} strokeLinecap="round" fill="none" />
+                    <path d="M14 -34 Q21 -34 20.5 -28.5 L14 -28.5 Z" fill="#5aa9e6" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
+                </g>
             </g>
         </g>
     );

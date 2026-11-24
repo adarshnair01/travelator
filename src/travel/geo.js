@@ -6,7 +6,7 @@ export const MODES = {
     flight: { label: 'Flight', color: '#f0c34e' },
     train: { label: 'Train', color: '#7cc4f5' },
     car: { label: 'Car', color: '#ef5b6f' },
-    bike: { label: 'Bike', color: '#4cc38a' },
+    bike: { label: 'Bike', color: '#ff7a1a' },
 };
 
 const R_EARTH_KM = 6371;
