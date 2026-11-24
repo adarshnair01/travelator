@@ -15,15 +15,6 @@ export const THEMES = {
         ...DARK_TEXT, accent: '#d99a00', barOff: 'rgba(20, 22, 28, 0.15)', chip: 'rgba(20, 22, 28, 0.06)',
         veil: 'rgba(244, 247, 252, 0.72)', markerOff: '#ffffff', markerOffStroke: '#9aa6b6', markerOffText: '#5b6372',
     },
-    satellite: {
-        label: 'Satellite',
-        satellite: true,
-        sea: '#0d2440', land: '#33402c', landStroke: null, border: 'rgba(255, 255, 255, 0.55)', borderDash: '8 6', grid: null,
-        panel: 'rgba(8, 14, 24, 0.78)', panelBorder: '1px solid rgba(255, 255, 255, 0.12)', panelShadow: '0 12px 30px rgba(0, 0, 0, 0.45)',
-        ...LIGHT_TEXT, accent: '#f0c34e', barOff: 'rgba(255, 255, 255, 0.25)', chip: 'rgba(255, 255, 255, 0.1)',
-        veil: 'rgba(5, 10, 20, 0.55)', markerOff: '#1b2a44', markerOffStroke: '#ffffff', markerOffText: '#ffffff',
-        credit: 'Imagery: Sentinel-2 cloudless 2016 by EOX · Copernicus Sentinel data 2016',
-    },
     mono: {
         label: 'Black & white',
         sea: '#ffffff', seaPattern: 'hatch', land: '#ffffff', landStroke: '#111111', landStrokeWidth: 3,
@@ -74,6 +65,3 @@ export const themeFor = (key) => THEMES[key] || THEMES[DEFAULT_THEME];
 export const ReelTheme = createContext(THEMES[DEFAULT_THEME]);
 export const useReelTheme = () => useContext(ReelTheme);
 
-// Satellite tiles: Sentinel-2 cloudless 2016 by EOX IT Services (CC BY 4.0), Web Mercator.
-export const SATELLITE_TILE = (z, x, y) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/${z}/${y}/${x}.jpg`;
-export const SATELLITE_MAX_ZOOM = 13;

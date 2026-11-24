@@ -1,27 +1,26 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { geoMercator, geoPath, geoGraticule10 } from 'd3-geo';
-import { Plane, TrainFront, Car, Motorbike, MapPin, Camera } from 'lucide-react';
+import { Plane, TrainFront, Car, Motorbike, Bus, MapPin, Camera } from 'lucide-react';
 import {
     REEL, MODES, TIMING, buildTimeline, cameraAt, segmentAt, legProgress, legPath,
     toPathD, headingDeg, project, clamp01, pointBack, wayPhotoAt, wayPoint,
 } from './geo';
 import { getWorld } from './world';
-import { ReelTheme, useReelTheme, themeFor, SATELLITE_TILE, SATELLITE_MAX_ZOOM } from './themes';
+import { ReelTheme, useReelTheme, themeFor } from './themes';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 // Colours shared by every map style (vehicles, markers, highlights)
 const C = {
     gold: '#f0c34e',
 };
-const ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike };
+const ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike, bus: Bus };
 
 const fmtKm = (km) => `${Math.round(km).toLocaleString('en-IN')} km`;
 
 // ---------------------------------------------------------------------------
 // Map layer: land and borders, clipped to the frame so each frame stays light,
-// drawn in the chosen style (with a texture for the comic, manga and ink styles),
-// or satellite imagery under the borders.
+// drawn in the chosen style (with a texture for the comic, manga and ink styles).
 
 // Textures for the sea and land in the illustrated styles
 const Patterns = () => (
@@ -44,34 +43,6 @@ const Patterns = () => (
     </defs>
 );
 
-// Satellite tiles covering the frame, at the zoom where a tile is about 400 px across
-const SatelliteTiles = ({ cam }) => {
-    const z = Math.max(1, Math.min(SATELLITE_MAX_ZOOM, Math.round(Math.log2((2 * Math.PI * cam.scale) / 400))));
-    const n = 2 ** z;
-    const tileM = (2 * Math.PI) / n; // one tile in Mercator units
-    const size = tileM * cam.scale;
-    const x0 = cam.cx - REEL.width / 2 / cam.scale, x1 = cam.cx + REEL.width / 2 / cam.scale;
-    const yTop = cam.cy + REEL.height / 2 / cam.scale, yBottom = cam.cy - REEL.height / 2 / cam.scale;
-    const tiles = [];
-    for (let tx = Math.floor((x0 + Math.PI) / tileM); tx <= Math.floor((x1 + Math.PI) / tileM); tx += 1) {
-        for (let ty = Math.max(0, Math.floor((Math.PI - yTop) / tileM)); ty <= Math.min(n - 1, Math.floor((Math.PI - yBottom) / tileM)); ty += 1) {
-            const left = REEL.width / 2 + (tx * tileM - Math.PI - cam.cx) * cam.scale;
-            const top = REEL.height / 2 - (Math.PI - ty * tileM - cam.cy) * cam.scale;
-            const wrapped = ((tx % n) + n) % n;
-            tiles.push(
-                <Img
-                    key={`${z}-${tx}-${ty}`}
-                    src={SATELLITE_TILE(z, wrapped, ty)}
-                    crossOrigin="anonymous"
-                    onError={() => { /* a missing tile just leaves the sea colour showing */ }}
-                    style={{ position: 'absolute', left, top, width: size + 1, height: size + 1 }}
-                />,
-            );
-        }
-    }
-    return <AbsoluteFill>{tiles}</AbsoluteFill>;
-};
-
 const MapLayer = ({ cam }) => {
     const T = useReelTheme();
     const world = getWorld();
@@ -93,28 +64,18 @@ const MapLayer = ({ cam }) => {
 
     return (
         <>
-            {T.satellite && (
-                // Plain land and sea under the imagery, in case a tile can't load
-                <>
-                    <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
-                        <rect width={REEL.width} height={REEL.height} fill={T.sea} />
-                        {paths.land && <path d={paths.land} fill={T.land} />}
-                    </svg>
-                    <SatelliteTiles cam={cam} />
-                </>
-            )}
             <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
                 <Patterns />
-                {!T.satellite && <rect width={REEL.width} height={REEL.height} fill={T.sea} />}
+                <rect width={REEL.width} height={REEL.height} fill={T.sea} />
                 {T.seaPattern && <rect width={REEL.width} height={REEL.height} fill={`url(#tex-${T.seaPattern})`} />}
                 {T.grid && paths.grid && <path d={paths.grid} fill="none" stroke={T.grid} strokeWidth={1.5} />}
-                {!T.satellite && paths.land && (
+                {paths.land && (
                     <>
                         <path d={paths.land} fill={T.land} stroke={T.landStroke || 'none'} strokeWidth={T.landStrokeWidth || 0} strokeLinejoin="round" />
                         {T.landPattern && <path d={paths.land} fill={`url(#tex-${T.landPattern})`} />}
                     </>
                 )}
-                {paths.borders && <path d={paths.borders} fill="none" stroke={T.border} strokeWidth={T.satellite ? 2 : 1.5} strokeDasharray={T.borderDash || undefined} />}
+                {paths.borders && <path d={paths.borders} fill="none" stroke={T.border} strokeWidth={1.5} strokeDasharray={T.borderDash || undefined} />}
             </svg>
         </>
     );
@@ -216,6 +177,13 @@ const RouteLayer = ({ timeline, frame, cam }) => {
                                 <path d={d} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={22} strokeDasharray="5 13" />
                                 <path d={d} fill="none" stroke={color} strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" />
                                 <path d={d} fill="none" stroke="#0b1628" strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+                            </>
+                        )}
+                        {leg.mode === 'bus' && (
+                            <>
+                                {/* a purple road dotted with white "bus stops" */}
+                                <path d={d} fill="none" stroke={color} strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" />
+                                <path d={d} fill="none" stroke="#ffffff" strokeWidth={5} strokeLinecap="round" strokeDasharray="0.1 26" />
                             </>
                         )}
                         {leg.mode === 'bike' && (
@@ -378,6 +346,50 @@ const BikeArt = ({ frame }) => {
     );
 };
 
+// Cartoon bus seen from the side, facing right: windows, door, destination sign,
+// a roof unit, a headlight and spinning wheels.
+const BusArt = ({ frame }) => {
+    const bob = Math.sin(frame * 0.8) * 1.2;
+    const spin = (frame * 22) % 360;
+    const color = MODES.bus.color;
+    const wheel = (cx) => (
+        <g transform={`translate(${cx} 18)`}>
+            <circle r={10.5} fill="#1d2433" stroke="#0b1628" strokeWidth={3} />
+            <circle r={4.5} fill="#cfd8e3" />
+            <g transform={`rotate(${spin})`} stroke="#cfd8e3" strokeWidth={2.2} strokeLinecap="round">
+                <line x1={-6.5} y1={0} x2={6.5} y2={0} />
+                <line x1={0} y1={-6.5} x2={0} y2={6.5} />
+            </g>
+        </g>
+    );
+    return (
+        <g>
+            <ellipse cx={0} cy={30} rx={44} ry={4.5} fill="#000" opacity={0.25} />
+            <g transform={`translate(0 ${bob.toFixed(2)})`}>
+                {/* roof unit, body, windscreen */}
+                <rect x={-26} y={-32} width={34} height={7} rx={3} fill="#6d45c9" stroke="#0b1628" strokeWidth={2.5} />
+                <path d="M-44 -18 Q-44 -26 -36 -26 L32 -26 Q40 -26 42 -18 L46 6 Q46 16 38 16 L-38 16 Q-44 16 -44 10 Z"
+                    fill={color} stroke="#0b1628" strokeWidth={3.5} strokeLinejoin="round" />
+                <path d="M33 -21 L39 -21 L43 -2 L33 -2 Z" fill="#bfe6ff" stroke="#0b1628" strokeWidth={2.5} strokeLinejoin="round" />
+                {/* passenger windows */}
+                {[-38, -24, -10].map((x) => (
+                    <rect key={x} x={x} y={-20} width={11} height={14} rx={3} fill="#bfe6ff" stroke="#0b1628" strokeWidth={2.2} />
+                ))}
+                {/* door */}
+                <rect x={6} y={-20} width={13} height={33} rx={3} fill="#bfe6ff" stroke="#0b1628" strokeWidth={2.2} />
+                <line x1={12.5} y1={-19} x2={12.5} y2={12} stroke="#0b1628" strokeWidth={1.8} />
+                {/* white stripe, destination sign, headlight, tail light */}
+                <path d="M-42 2 L4 2 M21 2 L44 2" stroke="#fff" strokeOpacity={0.7} strokeWidth={3} strokeLinecap="round" />
+                <rect x={22} y={-21} width={9} height={5} rx={1.5} fill={C.gold} stroke="#0b1628" strokeWidth={1.5} />
+                <circle cx={42} cy={9} r={3.5} fill={C.gold} stroke="#0b1628" strokeWidth={1.8} />
+                <rect x={-45} y={4} width={4} height={6} rx={1.5} fill="#ff6b6b" />
+            </g>
+            {wheel(-26)}
+            {wheel(28)}
+        </g>
+    );
+};
+
 // Cartoon plane seen from above, nose pointing right.
 const PlaneArt = () => (
     <g>
@@ -460,10 +472,10 @@ const Vehicle = ({ timeline, frame, cam }) => {
     const [x, y] = pts[pts.length - 1];
     const heading = headingDeg(pts);
     const beat = heartbeat(frame);
-    // The plane points along its arc and banks gently; the car and bike stay upright and face their direction
+    // The plane points along its arc and banks gently; road vehicles stay upright and face their direction
     const art = seg.mode === 'flight'
         ? <g transform={`rotate(${(heading + Math.sin(frame * 0.15) * 4).toFixed(1)}) scale(0.95)`}><PlaneArt /></g>
-        : <g transform={`scale(${Math.abs(heading) > 90 ? -1 : 1} 1)`}>{seg.mode === 'bike' ? <BikeArt frame={frame} /> : <CarArt frame={frame} />}</g>;
+        : <g transform={`scale(${Math.abs(heading) > 90 ? -1 : 1} 1)`}>{seg.mode === 'bike' ? <BikeArt frame={frame} /> : seg.mode === 'bus' ? <BusArt frame={frame} /> : <CarArt frame={frame} />}</g>;
     return (
         <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
             <Badge x={x} y={y} color={seg.mode === 'flight' ? '#2a5d8f' : '#fff4e0'} beat={beat} appear={appear}>
@@ -709,11 +721,6 @@ export const TravelReel = ({ title = 'My trip', stops = [], theme }) => {
             <StatsBand timeline={timeline} frame={frame} />
             <Intro title={title} timeline={timeline} frame={frame} />
             <Outro title={title} timeline={timeline} frame={frame} />
-            {T.credit && (
-                <div style={{ position: 'absolute', left: 0, right: 0, bottom: 28, textAlign: 'center', fontFamily: FONT, fontSize: 20, color: 'rgba(255, 255, 255, 0.75)', textShadow: '0 1px 4px rgba(0, 0, 0, 0.8)' }}>
-                    {T.credit}
-                </div>
-            )}
         </AbsoluteFill>
         </ReelTheme.Provider>
     );

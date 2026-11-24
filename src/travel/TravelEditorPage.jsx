@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
-    Plane, TrainFront, Car, Motorbike, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
+    Plane, TrainFront, Car, Motorbike, Bus, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
     Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus, Camera, Images,
 } from 'lucide-react';
 import { searchPlaces, reverseLookup, famousNearby } from './geocode';
@@ -15,7 +15,7 @@ import { REEL, MODES, TIMING, buildTimeline, distanceKm, curvePoints, legSeed } 
 import { loadWorld } from './world';
 import { THEMES, DEFAULT_THEME } from './themes';
 
-const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike };
+const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike, bus: Bus };
 const MAX_STOPS = 20;
 const MAX_PHOTOS = 4;
 const DRAFT_KEY = 'travel-reel-draft-v1';
@@ -50,7 +50,7 @@ function loadDraft() {
     return { title: 'My trip', stops: [], routes: {} };
 }
 
-// The route key of each leg over land (car, bike and train), indexed by the stop it arrives at.
+// The route key of each leg over land (car, bike, bus and train), indexed by the stop it arrives at.
 const legKeys = (stops) => stops.map((s, i) => (i > 0 && ROAD_MODES.has(s.mode) ? routeKey(stops[i - 1], s, s.mode) : null));
 
 function saveDraft(title, stops, routes) {
@@ -134,6 +134,7 @@ const TripMap = ({ stops, routes, onPick, adding, focus }) => (
                 <Fragment key={s.id}>
                     <Polyline positions={positions} pathOptions={{ color, weight: s.mode === 'train' ? 7 : 4 }} />
                     {s.mode === 'train' && <Polyline positions={positions} pathOptions={{ color: '#0b1628', weight: 2 }} />}
+                    {s.mode === 'bus' && <Polyline positions={positions} pathOptions={{ color: '#f4f7fc', weight: 3, dashArray: '1 14', lineCap: 'round' }} />}
                     {s.mode === 'bike' && <Polyline positions={positions} pathOptions={{ color: '#f4f7fc', weight: 1.5, dashArray: '6 8' }} />}
                 </Fragment>
             );
@@ -149,7 +150,7 @@ const TripMap = ({ stops, routes, onPick, adding, focus }) => (
 // ---- Small controls ----------------------------------------------------------
 
 const ModePicker = ({ value, onChange, label }) => (
-    <div role="radiogroup" aria-label={label} className="flex gap-1">
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1">
         {Object.entries(MODES).map(([key, m]) => {
             const Icon = MODE_ICONS[key];
             const on = value === key;
@@ -277,18 +278,8 @@ async function pickFormat(renderer) {
 // A small preview of each map style: its sea, land and route colours
 const ThemeSwatch = ({ t }) => (
     <svg viewBox="0 0 64 40" className="h-10 w-16 rounded-lg" aria-hidden="true">
-        {t.satellite ? (
-            <>
-                <rect width="64" height="40" fill="#1d3b55" />
-                <path d="M0 26 C14 18 22 30 34 20 S54 10 64 14 V40 H0 Z" fill="#4f6b3a" />
-                <path d="M30 12 C36 16 44 14 50 22 L64 22 V40 H38 Z" fill="#8a7a55" opacity="0.8" />
-            </>
-        ) : (
-            <>
-                <rect width="64" height="40" fill={t.sea} />
-                <path d="M0 26 C14 18 22 30 34 20 S54 10 64 14 V40 H0 Z" fill={t.land} stroke={t.landStroke || 'none'} strokeWidth={t.landStroke ? 1.5 : 0} />
-            </>
-        )}
+        <rect width="64" height="40" fill={t.sea} />
+        <path d="M0 26 C14 18 22 30 34 20 S54 10 64 14 V40 H0 Z" fill={t.land} stroke={t.landStroke || 'none'} strokeWidth={t.landStroke ? 1.5 : 0} />
         <path d="M8 32 C20 24 34 30 52 12" fill="none" stroke="#ef5b6f" strokeWidth="3" strokeLinecap="round" />
         <circle cx="52" cy="12" r="4" fill="#f0c34e" stroke={t.landStrokeWidth >= 3 ? '#000' : '#fff'} strokeWidth="1.5" />
     </svg>

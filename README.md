@@ -9,16 +9,16 @@ Turn a trip into a vertical travel reel, right in the browser: **https://adarshn
 Or build the trip by hand:
 
 1. Search for each place you visited (a city or a landmark), click it on the map, or tap one of the famous spots suggested near your latest stop.
-2. Pick how you got there from the last stop: car, bike, train or flight.
+2. Pick how you got there from the last stop: car, bike, bus, train or flight.
 3. Add up to four photos at each stop. Optionally add up to three photos taken on the way: the vehicle pauses partway along that leg to show them.
-4. Press **Done, make my reel** to watch it and pick a map style (Minimal, Satellite, Black & white, Comic, Manga, Vintage atlas or Midnight), then **Download** to save the video (MP4, or WebM where MP4 isn't supported).
+4. Press **Done, make my reel** to watch it and pick a map style (Minimal, Black & white, Comic, Manga, Vintage atlas or Midnight), then **Download** to save the video (MP4, or WebM where MP4 isn't supported).
 
 Photos never leave your device; the video is made in your browser.
 
 ## How it works
 
 - **Editor:** React, Leaflet with OpenStreetMap tiles, Nominatim for place search and names (a click on a landmark is named after the landmark), and the Overpass API for famous spots near a stop.
-- **Routes:** car and bike legs follow real roads from the public OSRM server; train legs follow the same corridor, smoothed into long sweeps. If routing fails, a curve that stays on land is drawn instead, or a path found over the land on the world map, so routes don't cross the sea. Flights fly an arc.
+- **Routes:** car, bike and bus legs follow real roads from the public OSRM server; train legs follow the same corridor, smoothed into long sweeps. If routing fails, a curve that stays on land is drawn instead, or a path found over the land on the world map, so routes don't cross the sea. Flights fly an arc.
 - **Reel:** a [Remotion](https://www.remotion.dev) composition at 1080×1920, 30 fps. Roads wind, flights follow an arc and trains run on a track, all drawn on a world map from `world-atlas`.
 - **Export:** `@remotion/web-renderer` encodes the video in the browser.
 
@@ -29,7 +29,7 @@ Photos never leave your device; the video is made in your browser.
 | `src/travel/geo.js` | Map camera, timeline and route curves |
 | `src/travel/geocode.js` | Place search, reverse lookup and famous spots nearby |
 | `src/travel/routes.js` | Land-following routes for car and train legs |
-| `src/travel/themes.js` | Map styles: map colours and textures, panel looks, satellite tiles |
+| `src/travel/themes.js` | Map styles: map colours and textures, panel looks |
 | `src/travel/photoTrip.js` | Reading photo location and time, and grouping photos into stops |
 | `src/travel/world.js` | Loads the world map |
 
@@ -46,4 +46,4 @@ The app is built for the `/travelator/` folder (`base` in `vite.config.js`). It 
 
 Pushes and pull requests here run lint and build (`.github/workflows/check.yml`).
 
-Map data © OpenStreetMap contributors. Country shapes from Natural Earth. Satellite imagery: Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0.
+Map data © OpenStreetMap contributors. Country shapes from Natural Earth.

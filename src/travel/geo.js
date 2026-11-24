@@ -7,6 +7,7 @@ export const MODES = {
     train: { label: 'Train', color: '#7cc4f5' },
     car: { label: 'Car', color: '#ef5b6f' },
     bike: { label: 'Bike', color: '#ff7a1a' },
+    bus: { label: 'Bus', color: '#9d6cf7' },
 };
 
 const R_EARTH_KM = 6371;
@@ -125,7 +126,7 @@ export function buildTimeline(rawStops) {
     push({ type: 'intro', dur: TIMING.intro, cam: overview });
 
     let travelled = 0;
-    const byMode = { flight: 0, train: 0, car: 0, bike: 0 };
+    const byMode = { flight: 0, train: 0, car: 0, bike: 0, bus: 0 };
     stops.forEach((stop, i) => {
         if (i > 0) {
             const from = stops[i - 1];
@@ -255,7 +256,7 @@ export const legSeed = (a, b) =>
 /**
  * Points from p0 to p1 (any 2D space) shaped by travel mode:
  *  - flight: one smooth parabolic arc bulging "up"
- *  - car and bike: a winding road, several bends of decreasing size
+ *  - car, bike and bus: a winding road, several bends of decreasing size
  *  - train: a gentle sweeping curve, like a rail line
  * Bends taper to zero at both ends so the line always meets its stops.
  * upIsNegativeY: true on screen (y grows down), false for latitude/longitude.
