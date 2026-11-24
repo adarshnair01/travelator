@@ -5,10 +5,11 @@ import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
     Plane, TrainFront, Car, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
-    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus, Camera,
+    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus, Camera, Images,
 } from 'lucide-react';
 import { searchPlaces, reverseLookup, famousNearby } from './geocode';
 import { getRoute, routeKey } from './routes';
+import { readPhotoInfo, groupIntoStops, placeByTime, guessMode } from './photoTrip';
 import { TravelReel } from './TravelReel';
 import { REEL, MODES, TIMING, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
 import { loadWorld } from './world';
@@ -453,6 +454,8 @@ export default function TravelEditorPage() {
     const [message, setMessage] = useState('');
     const [focus, setFocus] = useState(null);
     const [view, setView] = useState('edit');
+    const [importing, setImporting] = useState(null); // { label, done, total } while building from photos
+    const importRef = useRef(null);
 
     useEffect(() => { document.title = 'Travelator · Trip reel maker'; }, []);
     useEffect(() => { saveDraft(title, stops, routes); }, [title, stops, routes]);
@@ -539,6 +542,77 @@ export default function TravelEditorPage() {
         s.photos.filter((p) => p.id === photoId).forEach((p) => URL.revokeObjectURL(p.url));
         return { ...s, photos: s.photos.filter((p) => p.id !== photoId) };
     }));
+    // Build stops from a batch of photos, using the place and time saved in each one
+    const buildFromPhotos = async (files) => {
+        if (!files.length) return;
+        setMessage('');
+        const items = [];
+        let unreadable = 0;
+        for (let k = 0; k < files.length; k += 1) {
+            setImporting({ label: 'Reading photos', done: k, total: files.length });
+            const info = await readPhotoInfo(files[k]);
+            try {
+                items.push({ ...info, ...(await preparePhoto(files[k])) });
+            } catch {
+                unreadable += 1;
+            }
+        }
+        const located = items.filter((p) => p.lat != null);
+        if (!located.length) {
+            items.forEach((p) => URL.revokeObjectURL(p.url));
+            setImporting(null);
+            setMessage(unreadable === files.length
+                ? 'These photos could not be opened in this browser. Try JPEG photos, or add places by search or on the map.'
+                : 'None of these photos has a location saved in it. Add places by search or on the map, then add the photos to each stop.');
+            return;
+        }
+        let groups = groupIntoStops(located);
+        const left = placeByTime(groups, items.filter((p) => p.lat == null));
+        const room = MAX_STOPS - stops.length;
+        const dropped = groups.slice(room);
+        groups = groups.slice(0, room);
+
+        const named = [];
+        for (let k = 0; k < groups.length; k += 1) {
+            setImporting({ label: 'Naming places', done: k, total: groups.length });
+            const g = groups[k];
+            named.push({ ...g, name: await reverseLookup(g.anchor.lat, g.anchor.lng) });
+        }
+        setImporting(null);
+
+        // Free the photos that didn't make it in
+        const used = new Set(groups.flatMap((g) => [...g.photos, ...g.wayPhotos]).map((p) => p.url));
+        items.forEach((p) => { if (!used.has(p.url)) URL.revokeObjectURL(p.url); });
+
+        const keepPhoto = ({ id, url }) => ({ id, url });
+        setStops((prev) => {
+            const out = [...prev];
+            named.forEach((g) => {
+                const before = out[out.length - 1];
+                out.push({
+                    id: newId(),
+                    name: g.name,
+                    lat: g.anchor.lat,
+                    lng: g.anchor.lng,
+                    mode: before ? guessMode(distanceKm(before, g.anchor)) : null,
+                    photos: g.photos.map(keepPhoto),
+                    wayPhotos: before ? g.wayPhotos.map(keepPhoto) : [],
+                });
+            });
+            return out;
+        });
+        if (named.length) setFocus({ lat: named[0].anchor.lat, lng: named[0].anchor.lng, t: Date.now() });
+
+        const notes = [`Added ${named.length} stop${named.length === 1 ? '' : 's'} from ${files.length} photo${files.length === 1 ? '' : 's'}.`];
+        const spare = groups.reduce((n, g) => n + g.extra, 0);
+        if (spare) notes.push(`${spare} similar photo${spare === 1 ? ' was' : 's were'} left out (up to ${MAX_PHOTOS} per stop).`);
+        if (left.length) notes.push(`${left.length} photo${left.length === 1 ? ' has' : 's have'} no location, so ${left.length === 1 ? "it wasn't" : "they weren't"} added.`);
+        if (unreadable) notes.push(`${unreadable} couldn't be opened in this browser.`);
+        if (dropped.length) notes.push(`Stopped at ${MAX_STOPS} stops.`);
+        notes.push('Check each way of travel below.');
+        setMessage(notes.join(' '));
+    };
+
     const addWayPhotos = async (id, files) => {
         const stop = stops.find((s) => s.id === id);
         const room = TIMING.maxWayPhotos - (stop?.wayPhotos?.length || 0);
@@ -572,7 +646,7 @@ export default function TravelEditorPage() {
                 <ReelView title={title} stops={stops.map((s, i) => ({ ...s, route: keys[i] ? routes[keys[i]] : null }))} onBack={() => setView('edit')} />
             ) : (
                 <div className="grid md:h-[calc(100vh-57px)] md:grid-cols-[400px_1fr]">
-                    <aside className="order-2 flex flex-col gap-4 overflow-y-auto p-4 md:order-1">
+                    <aside className="order-2 flex flex-col gap-4 overflow-y-auto p-4 md:order-1 [&>*]:shrink-0">
                         <div>
                             <label htmlFor="trip-title" className="text-xs font-bold uppercase tracking-widest text-text-muted">Trip name</label>
                             <input
@@ -581,6 +655,32 @@ export default function TravelEditorPage() {
                                 maxLength={40}
                                 onChange={(e) => setTitle(e.target.value)}
                                 className="mt-1 w-full rounded-xl border border-frost/15 bg-night-card px-3 py-2 font-bold outline-none focus:border-gold"
+                            />
+                        </div>
+
+                        <div>
+                            <button
+                                type="button"
+                                onClick={() => importRef.current?.click()}
+                                disabled={Boolean(importing) || stops.length >= MAX_STOPS}
+                                className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-gold/50 bg-night-card px-4 py-3 text-left hover:border-gold disabled:opacity-60"
+                            >
+                                {importing ? <Loader2 size={22} className="shrink-0 animate-spin text-gold" aria-hidden="true" /> : <Images size={22} className="shrink-0 text-gold" aria-hidden="true" />}
+                                <span>
+                                    <span className="block font-bold text-snow">
+                                        {importing ? `${importing.label}… ${importing.done + 1} of ${importing.total}` : 'Build from trip photos'}
+                                    </span>
+                                    <span className="block text-xs text-text-muted">Uses the place and time saved in each photo. Nothing is uploaded.</span>
+                                </span>
+                            </button>
+                            <input
+                                ref={importRef}
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                hidden
+                                aria-label="Trip photos to build stops from"
+                                onChange={(e) => { const files = [...e.target.files]; e.target.value = ''; buildFromPhotos(files); }}
                             />
                         </div>
 

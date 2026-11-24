@@ -4,6 +4,10 @@ A tool for creating travel montage videos.
 
 Turn a trip into a vertical travel reel, right in the browser: **https://adarshnair.in/travelator/**
 
+**Fastest start:** press **Build from trip photos** and pick your trip's photos. Travelator reads the place and time your phone saved in each photo (on your device), groups them into stops in the order you took them, names each place, and attaches the photos. A single photo taken between two places becomes a photo on the way. Photos without a saved location are skipped, so add those by hand.
+
+Or build the trip by hand:
+
 1. Search for each place you visited (a city or a landmark), click it on the map, or tap one of the famous spots suggested near your latest stop.
 2. Pick how you got there from the last stop: car, train or flight.
 3. Add up to four photos at each stop. Optionally add up to three photos taken on the way: the vehicle pauses partway along that leg to show them.
@@ -25,6 +29,7 @@ Photos never leave your device; the video is made in your browser.
 | `src/travel/geo.js` | Map camera, timeline and route curves |
 | `src/travel/geocode.js` | Place search, reverse lookup and famous spots nearby |
 | `src/travel/routes.js` | Land-following routes for car and train legs |
+| `src/travel/photoTrip.js` | Reading photo location and time, and grouping photos into stops |
 | `src/travel/world.js` | Loads the world map |
 
 ## Develop
