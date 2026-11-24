@@ -1,6 +1,6 @@
 // Route shapes for car and train legs, as [lng, lat] points that stay on land.
 //
-// Car legs follow real roads from the public OSRM demo server (OpenStreetMap data).
+// Car and bike legs follow real roads from the public OSRM demo server (OpenStreetMap data).
 // Train legs use the same corridor, smoothed into long sweeps, since there is no free
 // rail router. If routing fails (no road between the places, or the service is down)
 // we fall back to a drawn curve, choosing the shape that keeps the most of it on land.
@@ -264,9 +264,12 @@ async function roadRoute(from, to, signal) {
 
 const cache = new Map();
 
+// Modes that travel over land and get a stored route (flights fly an arc instead)
+export const ROAD_MODES = new Set(['car', 'bike', 'train']);
+
 /** Land-following [lng, lat] points from `from` to `to`, or null for flights. */
 export function getRoute(from, to, mode, signal) {
-    if (mode !== 'car' && mode !== 'train') return Promise.resolve(null);
+    if (!ROAD_MODES.has(mode)) return Promise.resolve(null);
     const key = routeKey(from, to, mode);
     if (!cache.has(key)) {
         const job = (async () => {
@@ -274,7 +277,7 @@ export function getRoute(from, to, mode, signal) {
             let pts;
             try {
                 const road = await roadRoute(from, to, signal);
-                if (mode === 'car') {
+                if (mode !== 'train') {
                     pts = capPoints(road, spanDeg * 0.0015);
                 } else {
                     // Rail-like: keep only the big shape of the corridor, then round it off.

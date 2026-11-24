@@ -4,17 +4,17 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
-    Plane, TrainFront, Car, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
+    Plane, TrainFront, Car, Motorbike, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
     Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus, Camera, Images,
 } from 'lucide-react';
 import { searchPlaces, reverseLookup, famousNearby } from './geocode';
-import { getRoute, routeKey } from './routes';
+import { getRoute, routeKey, ROAD_MODES } from './routes';
 import { readPhotoInfo, groupIntoStops, placeByTime, guessMode } from './photoTrip';
 import { TravelReel } from './TravelReel';
 import { REEL, MODES, TIMING, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
 import { loadWorld } from './world';
 
-const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car };
+const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike };
 const MAX_STOPS = 20;
 const MAX_PHOTOS = 4;
 const DRAFT_KEY = 'travel-reel-draft-v1';
@@ -39,8 +39,8 @@ function loadDraft() {
     return { title: 'My trip', stops: [], routes: {} };
 }
 
-// The route key of each leg (car and train only), indexed by the stop it arrives at.
-const legKeys = (stops) => stops.map((s, i) => (i > 0 && (s.mode === 'car' || s.mode === 'train') ? routeKey(stops[i - 1], s, s.mode) : null));
+// The route key of each leg over land (car, bike and train), indexed by the stop it arrives at.
+const legKeys = (stops) => stops.map((s, i) => (i > 0 && ROAD_MODES.has(s.mode) ? routeKey(stops[i - 1], s, s.mode) : null));
 
 function saveDraft(title, stops, routes) {
     const keep = {};
@@ -123,6 +123,7 @@ const TripMap = ({ stops, routes, onPick, adding, focus }) => (
                 <Fragment key={s.id}>
                     <Polyline positions={positions} pathOptions={{ color, weight: s.mode === 'train' ? 7 : 4 }} />
                     {s.mode === 'train' && <Polyline positions={positions} pathOptions={{ color: '#0b1628', weight: 2 }} />}
+                    {s.mode === 'bike' && <Polyline positions={positions} pathOptions={{ color: '#f4f7fc', weight: 1.5, dashArray: '6 8' }} />}
                 </Fragment>
             );
         })}

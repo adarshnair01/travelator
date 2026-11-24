@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { geoMercator, geoPath, geoGraticule10 } from 'd3-geo';
-import { Plane, TrainFront, Car, MapPin, Camera } from 'lucide-react';
+import { Plane, TrainFront, Car, Motorbike, MapPin, Camera } from 'lucide-react';
 import {
     REEL, MODES, TIMING, buildTimeline, cameraAt, segmentAt, legProgress, legPath,
     toPathD, headingDeg, project, clamp01, pointBack, wayPhotoAt, wayPoint,
@@ -19,7 +19,7 @@ const C = {
     gold: '#f0c34e',
     panel: 'rgba(10, 19, 36, 0.82)',
 };
-const ICONS = { flight: Plane, train: TrainFront, car: Car };
+const ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike };
 
 const fmtKm = (km) => `${Math.round(km).toLocaleString('en-IN')} km`;
 
@@ -151,6 +151,12 @@ const RouteLayer = ({ timeline, frame, cam }) => {
                                 <path d={d} fill="none" stroke="#0b1628" strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
                             </>
                         )}
+                        {leg.mode === 'bike' && (
+                            <>
+                                <path d={d} fill="none" stroke={color} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
+                                <path d={d} fill="none" stroke="#f4f7fc" strokeOpacity={0.85} strokeWidth={2.5} strokeDasharray="12 14" />
+                            </>
+                        )}
                         {leg.mode === 'car' && (
                             <path d={d} fill="none" stroke={color} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
                         )}
@@ -237,6 +243,43 @@ const CarArt = ({ frame }) => {
     );
 };
 
+// Cartoon motorbike with its rider, seen from the side, facing right.
+const BikeArt = ({ frame }) => {
+    const bob = Math.sin(frame * 1.1) * 1.4;
+    const spin = (frame * 28) % 360;
+    const wheel = (cx) => (
+        <g transform={`translate(${cx} 17)`}>
+            <circle r={13} fill="#1d2433" stroke="#0b1628" strokeWidth={3} />
+            <circle r={5} fill="#cfd8e3" />
+            <g transform={`rotate(${spin})`} stroke="#cfd8e3" strokeWidth={2} strokeLinecap="round">
+                <line x1={-9} y1={0} x2={9} y2={0} />
+                <line x1={0} y1={-9} x2={0} y2={9} />
+            </g>
+        </g>
+    );
+    return (
+        <g>
+            <ellipse cx={1} cy={31} rx={38} ry={4.5} fill="#000" opacity={0.25} />
+            {wheel(-25)}
+            {wheel(26)}
+            <g transform={`translate(0 ${bob.toFixed(2)})`}>
+                {/* exhaust, body and tank */}
+                <path d="M-36 9 L-14 9" stroke="#8a95a8" strokeWidth={5} strokeLinecap="round" />
+                <path d="M-30 4 Q-28 -6 -16 -6 L6 -8 Q16 -16 24 -10 L30 2 Q24 12 12 12 L-22 12 Q-31 12 -30 4 Z"
+                    fill={MODES.bike.color} stroke="#0b1628" strokeWidth={3.5} strokeLinejoin="round" />
+                <path d="M-24 -6 Q-20 -12 -4 -11 L2 -8 L-24 -4 Z" fill="#1d2433" stroke="#0b1628" strokeWidth={2.5} strokeLinejoin="round" />
+                <path d="M24 -10 L30 -24" stroke="#0b1628" strokeWidth={4} strokeLinecap="round" />
+                <circle cx={33} cy={-6} r={5} fill={C.gold} stroke="#0b1628" strokeWidth={2} />
+                {/* rider: body, arm to the handlebar, helmet with visor */}
+                <path d="M-12 -10 Q-10 -26 0 -30" stroke="#2a5d8f" strokeWidth={10} strokeLinecap="round" fill="none" />
+                <path d="M0 -26 Q14 -26 28 -23" stroke="#2a5d8f" strokeWidth={6} strokeLinecap="round" fill="none" />
+                <circle cx={3} cy={-38} r={10} fill={C.gold} stroke="#0b1628" strokeWidth={3} />
+                <path d="M6 -42 Q14 -40 13 -34 L7 -34 Z" fill="#bfe6ff" stroke="#0b1628" strokeWidth={2} strokeLinejoin="round" />
+            </g>
+        </g>
+    );
+};
+
 // Cartoon plane seen from above, nose pointing right.
 const PlaneArt = () => (
     <g>
@@ -319,10 +362,10 @@ const Vehicle = ({ timeline, frame, cam }) => {
     const [x, y] = pts[pts.length - 1];
     const heading = headingDeg(pts);
     const beat = heartbeat(frame);
-    // The plane points along its arc and banks gently; the car stays upright and faces its direction
+    // The plane points along its arc and banks gently; the car and bike stay upright and face their direction
     const art = seg.mode === 'flight'
         ? <g transform={`rotate(${(heading + Math.sin(frame * 0.15) * 4).toFixed(1)}) scale(0.95)`}><PlaneArt /></g>
-        : <g transform={`scale(${Math.abs(heading) > 90 ? -1 : 1} 1)`}><CarArt frame={frame} /></g>;
+        : <g transform={`scale(${Math.abs(heading) > 90 ? -1 : 1} 1)`}>{seg.mode === 'bike' ? <BikeArt frame={frame} /> : <CarArt frame={frame} />}</g>;
     return (
         <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
             <Badge x={x} y={y} color={seg.mode === 'flight' ? '#2a5d8f' : '#fff4e0'} beat={beat} appear={appear}>
