@@ -8,7 +8,7 @@ Turn a trip into a vertical travel reel, right in the browser: **https://adarshn
 
 Or build the trip by hand:
 
-1. Search for each place you visited (a city or a landmark), click it on the map, or tap one of the famous spots suggested near your latest stop.
+1. Start typing a place you visited (a city or a landmark): suggestions appear as you type, favouring places near your latest stop. Or click it on the map.
 2. Pick how you got there from the last stop: car, bike, bus, train or flight.
 3. Add up to four photos at each stop. Optionally add up to three photos taken on the way: the vehicle pauses partway along that leg to show them.
 4. Press **Done, make my reel** to watch it and pick a map style (Minimal, Black & white, Comic, Manga, Vintage atlas or Midnight), then **Download** to save the video (MP4, or WebM where MP4 isn't supported).
@@ -17,7 +17,7 @@ Photos never leave your device; the video is made in your browser.
 
 ## How it works
 
-- **Editor:** React, Leaflet with OpenStreetMap tiles, Nominatim for place search and names (a click on a landmark is named after the landmark), and the Overpass API for famous spots near a stop.
+- **Editor:** React, Leaflet with OpenStreetMap tiles, Photon for suggestions while typing, and Nominatim for the full search and for naming clicked places (a click on a landmark is named after the landmark).
 - **Routes:** car, bike and bus legs follow real roads from the public OSRM server; train legs follow the same corridor, smoothed into long sweeps. If routing fails, a curve that stays on land is drawn instead, or a path found over the land on the world map, so routes don't cross the sea. Flights fly an arc.
 - **Reel:** a [Remotion](https://www.remotion.dev) composition at 1080×1920, 30 fps. Roads wind, flights follow an arc and trains run on a track, all drawn on a world map from `world-atlas`.
 - **Export:** `@remotion/web-renderer` encodes the video in the browser.
@@ -27,7 +27,7 @@ Photos never leave your device; the video is made in your browser.
 | `src/travel/TravelEditorPage.jsx` | Editor page, player and export |
 | `src/travel/TravelReel.jsx` | The video composition |
 | `src/travel/geo.js` | Map camera, timeline and route curves |
-| `src/travel/geocode.js` | Place search, reverse lookup and famous spots nearby |
+| `src/travel/geocode.js` | Place search, suggestions while typing and reverse lookup |
 | `src/travel/routes.js` | Land-following routes for car and train legs |
 | `src/travel/themes.js` | Map styles: map colours and textures, panel looks |
 | `src/travel/photoTrip.js` | Reading photo location and time, and grouping photos into stops |

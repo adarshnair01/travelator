@@ -5,9 +5,9 @@ import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
     Plane, TrainFront, Car, Motorbike, Bus, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
-    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus, Camera, Images,
+    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Camera, Images,
 } from 'lucide-react';
-import { searchPlaces, reverseLookup, famousNearby } from './geocode';
+import { searchPlaces, reverseLookup, suggestPlaces } from './geocode';
 import { getRoute, routeKey, ROAD_MODES } from './routes';
 import { readPhotoInfo, groupIntoStops, placeByTime, guessMode } from './photoTrip';
 import { TravelReel } from './TravelReel';
@@ -445,46 +445,112 @@ const ReelView = ({ title, stops, onBack, theme, onTheme }) => {
     );
 };
 
-// ---- Famous spots near the latest stop ------------------------------------------
+// ---- Place search with suggestions while typing ---------------------------------
 
-const FamousSpots = ({ near, onAdd, disabled }) => {
-    const [state, setState] = useState({ key: null, spots: [], loading: false });
-    const key = near ? `${near.lat},${near.lng}` : null;
+const PlaceSearch = ({ query, setQuery, near, onPick, onSubmit, searching, disabled, label }) => {
+    const [suggestions, setSuggestions] = useState([]);
+    const [open, setOpen] = useState(false);
+    const [active, setActive] = useState(-1);
+    const submitted = useRef(''); // a query already sent to the full search shows no dropdown
+    const nearKey = near ? `${near.lat},${near.lng}` : '';
+
     useEffect(() => {
-        if (!near) return undefined;
+        const q = query.trim();
+        if (q.length < 2) {
+            setSuggestions([]);
+            setOpen(false);
+            return undefined;
+        }
         const controller = new AbortController();
-        setState({ key, spots: [], loading: true });
-        famousNearby(near.lat, near.lng, controller.signal)
-            .then((spots) => setState({ key, spots, loading: false }))
-            .catch(() => { if (!controller.signal.aborted) setState({ key, spots: [], loading: false }); });
-        return () => controller.abort();
+        // Wait for a short pause in typing, and cancel the previous lookup
+        const timer = setTimeout(() => {
+            suggestPlaces(q, near, controller.signal)
+                .then((found) => { setSuggestions(found); setActive(-1); setOpen(submitted.current !== q); })
+                .catch(() => { /* typing on, or the service is down: Enter still searches */ });
+        }, 250);
+        return () => { clearTimeout(timer); controller.abort(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [key]);
-    if (!near || state.key !== key || (!state.loading && !state.spots.length)) return null;
+    }, [query, nearKey]);
+
+    const pick = (place) => {
+        setOpen(false);
+        setSuggestions([]);
+        onPick(place);
+    };
+    const showList = open && suggestions.length > 0;
+    const onKeyDown = (e) => {
+        if (e.key === 'ArrowDown' && suggestions.length) {
+            e.preventDefault();
+            setOpen(true);
+            setActive((i) => (i + 1) % suggestions.length);
+        } else if (e.key === 'ArrowUp' && suggestions.length) {
+            e.preventDefault();
+            setOpen(true);
+            setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+        } else if (e.key === 'Enter' && showList && active >= 0) {
+            e.preventDefault();
+            pick(suggestions[active]);
+        } else if (e.key === 'Escape') {
+            setOpen(false);
+        }
+    };
+
     return (
-        <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-text-muted">
-                <Landmark size={12} aria-hidden="true" /> Famous spots near {near.name}
-            </p>
-            {state.loading ? (
-                <p className="flex items-center gap-2 text-xs text-text-muted"><Loader2 size={12} className="animate-spin" aria-hidden="true" /> Finding sights…</p>
-            ) : (
-                <ul className="flex flex-wrap gap-1.5" aria-label={`Famous spots near ${near.name}`}>
-                    {state.spots.map((p) => (
-                        <li key={`${p.name}-${p.lat}`}>
-                            <button
-                                type="button"
-                                disabled={disabled}
-                                onClick={() => onAdd(p)}
-                                className="flex items-center gap-1 rounded-full border border-frost/20 px-3 py-1 text-xs font-bold text-snow hover:border-gold hover:text-gold disabled:opacity-40"
-                            >
-                                <Plus size={12} aria-hidden="true" /> {p.name}
-                            </button>
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </div>
+        <form onSubmit={(e) => { e.preventDefault(); submitted.current = query.trim(); setOpen(false); onSubmit(); }} className="space-y-2">
+            <label htmlFor="place-search" className="text-xs font-bold uppercase tracking-widest text-text-muted">{label}</label>
+            <div className="relative flex gap-2">
+                <input
+                    id="place-search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    onFocus={() => suggestions.length && setOpen(true)}
+                    onBlur={() => setOpen(false)}
+                    placeholder="Search a city, landmark or place"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-expanded={showList}
+                    aria-controls="place-suggestions"
+                    aria-autocomplete="list"
+                    aria-activedescendant={showList && active >= 0 ? `place-option-${active}` : undefined}
+                    className="min-w-0 flex-1 rounded-xl border border-frost/15 bg-night-card px-3 py-2 outline-none focus:border-gold"
+                    disabled={disabled}
+                />
+                <button type="submit" disabled={searching || disabled} className="rounded-xl bg-gold px-3 text-night disabled:opacity-50" aria-label="Search">
+                    {searching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                </button>
+                {showList && (
+                    <ul
+                        id="place-suggestions"
+                        role="listbox"
+                        aria-label="Suggested places"
+                        className="absolute left-0 right-12 top-full z-[1000] mt-1 max-h-80 overflow-y-auto rounded-xl border border-frost/20 bg-night-soft py-1 shadow-2xl"
+                    >
+                        {suggestions.map((r, i) => {
+                            const Icon = r.landmark ? Landmark : MapPin;
+                            return (
+                                <li
+                                    key={`${r.lat},${r.lng},${i}`}
+                                    id={`place-option-${i}`}
+                                    role="option"
+                                    aria-selected={i === active}
+                                    // mousedown, not click, so the input doesn't lose focus and close the list first
+                                    onMouseDown={(e) => { e.preventDefault(); pick(r); }}
+                                    onMouseEnter={() => setActive(i)}
+                                    className={`flex cursor-pointer items-start gap-2 px-3 py-2 ${i === active ? 'bg-night-card' : ''}`}
+                                >
+                                    <Icon size={16} className={`mt-0.5 shrink-0 ${r.landmark ? 'text-gold' : 'text-text-muted'}`} aria-hidden="true" />
+                                    <span className="min-w-0">
+                                        <span className="block truncate font-bold text-snow">{r.name}</span>
+                                        {r.detail && <span className="block truncate text-xs text-text-muted">{r.detail}</span>}
+                                    </span>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+            </div>
+        </form>
     );
 };
 
@@ -547,8 +613,7 @@ export default function TravelEditorPage() {
         }
     }, [addStop]);
 
-    const onSearch = async (e) => {
-        e.preventDefault();
+    const onSearch = async () => {
         if (!query.trim()) return;
         setSearching(true);
         setMessage('');
@@ -735,23 +800,17 @@ export default function TravelEditorPage() {
                             />
                         </div>
 
-                        <form onSubmit={onSearch} className="space-y-2">
-                            <label htmlFor="place-search" className="text-xs font-bold uppercase tracking-widest text-text-muted">
-                                {stops.length ? 'Add the next place' : 'Where did your trip start?'}
-                            </label>
-                            <div className="flex gap-2">
-                                <input
-                                    id="place-search"
-                                    value={query}
-                                    onChange={(e) => setQuery(e.target.value)}
-                                    placeholder="Search a city, landmark or place"
-                                    className="min-w-0 flex-1 rounded-xl border border-frost/15 bg-night-card px-3 py-2 outline-none focus:border-gold"
-                                    disabled={stops.length >= MAX_STOPS}
-                                />
-                                <button type="submit" disabled={searching || stops.length >= MAX_STOPS} className="rounded-xl bg-gold px-3 text-night disabled:opacity-50" aria-label="Search">
-                                    {searching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                                </button>
-                            </div>
+                        <div className="space-y-2">
+                            <PlaceSearch
+                                query={query}
+                                setQuery={setQuery}
+                                near={stops[stops.length - 1]}
+                                onPick={addStop}
+                                onSubmit={onSearch}
+                                searching={searching}
+                                disabled={stops.length >= MAX_STOPS}
+                                label={stops.length ? 'Add the next place' : 'Where did your trip start?'}
+                            />
                             {stops.length > 0 && (
                                 <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-xs text-text-muted">Getting there by</span>
@@ -761,7 +820,7 @@ export default function TravelEditorPage() {
                             <p className="flex items-center gap-1.5 text-xs text-text-muted">
                                 <MapPin size={12} aria-hidden="true" /> Or click anywhere on the map.{adding ? ' Looking up the place…' : ''}
                             </p>
-                        </form>
+                        </div>
 
                         {results.length > 0 && (
                             <ul className="space-y-1" aria-label="Search results">
@@ -775,8 +834,6 @@ export default function TravelEditorPage() {
                                 ))}
                             </ul>
                         )}
-
-                        <FamousSpots near={stops[stops.length - 1]} onAdd={addStop} disabled={stops.length >= MAX_STOPS} />
 
                         <p aria-live="polite" className="min-h-[1rem] text-xs text-frost">{message}</p>
 

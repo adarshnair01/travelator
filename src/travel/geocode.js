@@ -1,5 +1,5 @@
 // Place search and reverse lookup with OpenStreetMap's Nominatim service,
-// plus famous sights near a place from the Overpass API.
+// plus suggestions while typing from Photon.
 // Usage policy: at most one request per second, no autocomplete-per-keystroke,
 // and attribution to OpenStreetMap. Searches run only when the user submits.
 const BASE = 'https://nominatim.openstreetmap.org';
@@ -49,49 +49,34 @@ export async function reverseLookup(lat, lng, signal) {
     return `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
 }
 
-// ---- Famous spots nearby ----------------------------------------------------------
-// Well-known sights around a place, from OpenStreetMap via the Overpass API. Only
-// sights linked to Wikidata are asked for, which keeps the list to notable ones.
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
-const TOURISM = 'attraction|museum|viewpoint|theme_park|zoo|aquarium|gallery';
-const HISTORIC = 'monument|castle|fort|palace|archaeological_site|memorial|ruins|city_gate|temple';
-const sightsCache = new Map();
+// ---- Suggestions while typing ------------------------------------------------------
+// Nominatim doesn't allow search-as-you-type, so suggestions come from Photon
+// (komoot's open search built on OpenStreetMap, made for autocomplete). Results are
+// nudged towards the latest stop, so famous places nearby come up first.
+const PHOTON = 'https://photon.komoot.io/api/';
+const PHOTON_LANGS = ['en', 'de', 'fr', 'it'];
 
-export function famousNearby(lat, lng, signal) {
-    const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
-    if (sightsCache.has(key)) return sightsCache.get(key);
-    const around = `around:25000,${lat},${lng}`;
-    const query = `[out:json][timeout:20];(` +
-        `nwr["tourism"~"^(${TOURISM})$"]["name"]["wikidata"](${around});` +
-        `nwr["historic"~"^(${HISTORIC})$"]["name"]["wikidata"](${around});` +
-        `nwr["natural"~"^(beach|waterfall|peak)$"]["name"]["wikipedia"](${around});` +
-        `);out center tags 80;`;
-    const job = fetch(OVERPASS, {
-        method: 'POST',
-        body: new URLSearchParams({ data: query }),
-        signal,
-    }).then(async (res) => {
-        if (!res.ok) throw new Error(`Sights lookup failed (${res.status})`);
-        const data = await res.json();
-        const want = lang().split('-')[0];
-        const seen = new Set();
-        return (data.elements || [])
-            .map((el) => {
-                const t = el.tags || {};
-                return {
-                    name: t[`name:${want}`] || t['name:en'] || t.name,
-                    lat: el.lat ?? el.center?.lat,
-                    lng: el.lon ?? el.center?.lon,
-                    // Sights with a Wikipedia article in more places tend to be the famous ones
-                    score: (t.wikipedia ? 2 : 0) + (t.tourism === 'attraction' ? 1 : 0) + (t.historic ? 1 : 0) + (t.heritage ? 1 : 0),
-                };
-            })
-            .filter((p) => p.name && Number.isFinite(p.lat) && Number.isFinite(p.lng))
-            .filter((p) => { const k = p.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-            .sort((a, b) => b.score - a.score || a.name.length - b.name.length)
-            .slice(0, 8);
-    });
-    sightsCache.set(key, job);
-    job.catch(() => sightsCache.delete(key));
-    return job;
+const isLandmark = (key, value) => SIGHT_CATEGORIES.has(key) || (key === 'amenity' && SIGHT_AMENITIES.has(value));
+
+export async function suggestPlaces(query, near, signal) {
+    const want = lang().split('-')[0];
+    const params = new URLSearchParams({ q: query, limit: '7', lang: PHOTON_LANGS.includes(want) ? want : 'en' });
+    if (near) {
+        params.set('lat', near.lat.toFixed(4));
+        params.set('lon', near.lng.toFixed(4));
+    }
+    const res = await fetch(`${PHOTON}?${params}`, { signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Suggestions failed (${res.status})`);
+    const data = await res.json();
+    const seen = new Set();
+    return (data.features || [])
+        .map((f) => {
+            const p = f.properties || {};
+            const [lng, lat] = f.geometry?.coordinates || [];
+            const name = p.name || [p.street, p.housenumber].filter(Boolean).join(' ');
+            const detail = [p.city, p.county, p.state, p.country].filter((x, i, arr) => x && x !== name && arr.indexOf(x) === i).slice(0, 3).join(', ');
+            return { name, detail, lat, lng, landmark: isLandmark(p.osm_key, p.osm_value) };
+        })
+        .filter((r) => r.name && Number.isFinite(r.lat) && Number.isFinite(r.lng))
+        .filter((r) => { const k = `${r.name}|${r.detail}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
