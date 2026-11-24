@@ -7,26 +7,73 @@ import {
     toPathD, headingDeg, project, clamp01, pointBack, wayPhotoAt, wayPoint,
 } from './geo';
 import { getWorld } from './world';
+import { ReelTheme, useReelTheme, themeFor, SATELLITE_TILE, SATELLITE_MAX_ZOOM } from './themes';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+// Colours shared by every map style (vehicles, markers, highlights)
 const C = {
-    sea: '#0b1628',
-    land: '#1c2b45',
-    border: '#2e4366',
-    grid: '#13213a',
-    text: '#f4f7fc',
-    muted: '#a6b4cc',
     gold: '#f0c34e',
-    panel: 'rgba(10, 19, 36, 0.82)',
 };
 const ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike };
 
 const fmtKm = (km) => `${Math.round(km).toLocaleString('en-IN')} km`;
 
 // ---------------------------------------------------------------------------
-// Map layer: land and borders, clipped to the frame so each frame stays light.
+// Map layer: land and borders, clipped to the frame so each frame stays light,
+// drawn in the chosen style (with a texture for the comic, manga and ink styles),
+// or satellite imagery under the borders.
+
+// Textures for the sea and land in the illustrated styles
+const Patterns = () => (
+    <defs>
+        <pattern id="tex-halftone" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="5.5" cy="5.5" r="3.2" fill="#ffffff" opacity="0.45" />
+            <circle cx="16.5" cy="16.5" r="3.2" fill="#ffffff" opacity="0.45" />
+        </pattern>
+        <pattern id="tex-hatch" width="14" height="14" patternUnits="userSpaceOnUse">
+            <line x1="0" y1="7" x2="14" y2="7" stroke="#111111" strokeWidth="1.2" opacity="0.55" />
+        </pattern>
+        <pattern id="tex-speed" width="40" height="12" patternUnits="userSpaceOnUse">
+            <line x1="0" y1="3" x2="26" y2="3" stroke="#000000" strokeWidth="1.6" opacity="0.7" />
+            <line x1="18" y1="9" x2="40" y2="9" stroke="#000000" strokeWidth="1" opacity="0.45" />
+        </pattern>
+        <pattern id="tex-tone" width="10" height="10" patternUnits="userSpaceOnUse">
+            <circle cx="2.5" cy="2.5" r="1.6" fill="#000000" opacity="0.5" />
+            <circle cx="7.5" cy="7.5" r="1.6" fill="#000000" opacity="0.5" />
+        </pattern>
+    </defs>
+);
+
+// Satellite tiles covering the frame, at the zoom where a tile is about 400 px across
+const SatelliteTiles = ({ cam }) => {
+    const z = Math.max(1, Math.min(SATELLITE_MAX_ZOOM, Math.round(Math.log2((2 * Math.PI * cam.scale) / 400))));
+    const n = 2 ** z;
+    const tileM = (2 * Math.PI) / n; // one tile in Mercator units
+    const size = tileM * cam.scale;
+    const x0 = cam.cx - REEL.width / 2 / cam.scale, x1 = cam.cx + REEL.width / 2 / cam.scale;
+    const yTop = cam.cy + REEL.height / 2 / cam.scale, yBottom = cam.cy - REEL.height / 2 / cam.scale;
+    const tiles = [];
+    for (let tx = Math.floor((x0 + Math.PI) / tileM); tx <= Math.floor((x1 + Math.PI) / tileM); tx += 1) {
+        for (let ty = Math.max(0, Math.floor((Math.PI - yTop) / tileM)); ty <= Math.min(n - 1, Math.floor((Math.PI - yBottom) / tileM)); ty += 1) {
+            const left = REEL.width / 2 + (tx * tileM - Math.PI - cam.cx) * cam.scale;
+            const top = REEL.height / 2 - (Math.PI - ty * tileM - cam.cy) * cam.scale;
+            const wrapped = ((tx % n) + n) % n;
+            tiles.push(
+                <Img
+                    key={`${z}-${tx}-${ty}`}
+                    src={SATELLITE_TILE(z, wrapped, ty)}
+                    crossOrigin="anonymous"
+                    onError={() => { /* a missing tile just leaves the sea colour showing */ }}
+                    style={{ position: 'absolute', left, top, width: size + 1, height: size + 1 }}
+                />,
+            );
+        }
+    }
+    return <AbsoluteFill>{tiles}</AbsoluteFill>;
+};
 
 const MapLayer = ({ cam }) => {
+    const T = useReelTheme();
     const world = getWorld();
     const paths = useMemo(() => {
         const centerLng = (cam.cx * 180) / Math.PI;
@@ -45,12 +92,31 @@ const MapLayer = ({ cam }) => {
     }, [cam.cx, cam.cy, cam.scale, world]);
 
     return (
-        <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
-            <rect width={REEL.width} height={REEL.height} fill={C.sea} />
-            {paths.grid && <path d={paths.grid} fill="none" stroke={C.grid} strokeWidth={1.5} />}
-            {paths.land && <path d={paths.land} fill={C.land} />}
-            {paths.borders && <path d={paths.borders} fill="none" stroke={C.border} strokeWidth={1.5} />}
-        </svg>
+        <>
+            {T.satellite && (
+                // Plain land and sea under the imagery, in case a tile can't load
+                <>
+                    <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
+                        <rect width={REEL.width} height={REEL.height} fill={T.sea} />
+                        {paths.land && <path d={paths.land} fill={T.land} />}
+                    </svg>
+                    <SatelliteTiles cam={cam} />
+                </>
+            )}
+            <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
+                <Patterns />
+                {!T.satellite && <rect width={REEL.width} height={REEL.height} fill={T.sea} />}
+                {T.seaPattern && <rect width={REEL.width} height={REEL.height} fill={`url(#tex-${T.seaPattern})`} />}
+                {T.grid && paths.grid && <path d={paths.grid} fill="none" stroke={T.grid} strokeWidth={1.5} />}
+                {!T.satellite && paths.land && (
+                    <>
+                        <path d={paths.land} fill={T.land} stroke={T.landStroke || 'none'} strokeWidth={T.landStrokeWidth || 0} strokeLinejoin="round" />
+                        {T.landPattern && <path d={paths.land} fill={`url(#tex-${T.landPattern})`} />}
+                    </>
+                )}
+                {paths.borders && <path d={paths.borders} fill="none" stroke={T.border} strokeWidth={T.satellite ? 2 : 1.5} strokeDasharray={T.borderDash || undefined} />}
+            </svg>
+        </>
     );
 };
 
@@ -97,6 +163,7 @@ function layoutLabels(markers, stops, reached, activeStop) {
 // Route layer: finished legs, the leg in progress, stop markers and the vehicle.
 
 const RouteLayer = ({ timeline, frame, cam }) => {
+    const T = useReelTheme();
     const { segments, stops } = timeline;
     const idx = segmentAt(segments, frame);
     const current = segments[idx];
@@ -172,8 +239,8 @@ const RouteLayer = ({ timeline, frame, cam }) => {
 
             {labels.map((l) => (
                 <g key={`label-${l.i}`} opacity={l.on ? 1 : 0.75}>
-                    <rect x={l.x} y={l.y} width={l.w} height={LABEL_H} rx={LABEL_H / 2} fill={C.panel} stroke={l.on ? C.gold : '#4c6187'} strokeWidth={2.5} />
-                    <text x={l.x + l.w / 2} y={l.y + LABEL_H / 2 + 10} textAnchor="middle" fontSize={LABEL_FONT} fontWeight={800} fontFamily={FONT} fill={l.on ? C.text : C.muted}>{l.text}</text>
+                    <rect x={l.x} y={l.y} width={l.w} height={LABEL_H} rx={LABEL_H / 2} fill={T.panel} stroke={l.on ? T.accent : T.markerOffStroke} strokeWidth={T.landStrokeWidth >= 3 ? 3.5 : 2.5} />
+                    <text x={l.x + l.w / 2} y={l.y + LABEL_H / 2 + 10} textAnchor="middle" fontSize={LABEL_FONT} fontWeight={800} fontFamily={FONT} fill={l.on ? T.text : T.muted}>{l.text}</text>
                 </g>
             ))}
 
@@ -184,8 +251,8 @@ const RouteLayer = ({ timeline, frame, cam }) => {
                 return (
                     <g key={i} transform={`translate(${x} ${y})`}>
                         {active && <circle r={44 * pulse} fill={C.gold} opacity={0.22} />}
-                        <circle r={26} fill={on ? C.gold : '#22324f'} stroke={on ? '#fff' : '#4c6187'} strokeWidth={4} />
-                        <text y={10} textAnchor="middle" fontSize={28} fontWeight={800} fontFamily={FONT} fill={on ? '#0b1628' : C.muted}>{i + 1}</text>
+                        <circle r={26} fill={on ? C.gold : T.markerOff} stroke={on ? (T.landStrokeWidth >= 3 ? '#000' : '#fff') : T.markerOffStroke} strokeWidth={4} />
+                        <text y={10} textAnchor="middle" fontSize={28} fontWeight={800} fontFamily={FONT} fill={on ? '#0b1628' : T.markerOffText}>{i + 1}</text>
                     </g>
                 );
             })}
@@ -409,7 +476,13 @@ const Vehicle = ({ timeline, frame, cam }) => {
 // ---------------------------------------------------------------------------
 // Text and photo overlays.
 
+// Panels over the map take the theme's colours, border and shadow
+const panelStyle = (T) => ({ background: T.panel, border: T.panelBorder, boxShadow: T.panelShadow });
+// Text drawn straight on the map gets a soft shadow on photographic and dark maps
+const onMapShadow = (T) => (T.text === '#f4f7fc' ? '0 2px 10px rgba(0, 0, 0, 0.65)' : 'none');
+
 const TopBand = ({ title, timeline, frame }) => {
+    const T = useReelTheme();
     const { segments, stops } = timeline;
     const seg = segments[segmentAt(segments, frame)];
     if (seg.type === 'intro') return null;
@@ -417,30 +490,33 @@ const TopBand = ({ title, timeline, frame }) => {
         : seg.type === 'stop' ? seg.index + 1 : seg.index;
     return (
         <div style={{ position: 'absolute', top: 70, left: 60, right: 60, fontFamily: FONT }}>
-            <div style={{ color: C.muted, fontSize: 30, fontWeight: 700, letterSpacing: 6, textTransform: 'uppercase' }}>{title}</div>
+            <div style={{ color: T.text, opacity: 0.8, fontSize: 30, fontWeight: 700, letterSpacing: 6, textTransform: 'uppercase', textShadow: onMapShadow(T) }}>{title}</div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
                 {stops.map((_, i) => (
-                    <div key={i} style={{ flex: 1, height: 10, borderRadius: 5, background: i < reachedCount ? C.gold : 'rgba(255,255,255,0.18)' }} />
+                    <div key={i} style={{ flex: 1, height: 10, borderRadius: 5, background: i < reachedCount ? T.accent : T.barOff }} />
                 ))}
             </div>
         </div>
     );
 };
 
-const PlaceTitle = ({ stop, number, appear }) => (
+const PlaceTitle = ({ stop, number, appear }) => {
+    const T = useReelTheme();
+    return (
     <div style={{
         position: 'absolute', top: 190, left: 60, right: 60, fontFamily: FONT,
         opacity: appear, transform: `translateY(${(1 - appear) * 30}px)`,
     }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, background: C.panel, borderRadius: 28, padding: '22px 34px' }}>
-            <MapPin size={52} color={C.gold} strokeWidth={2.6} />
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, ...panelStyle(T), borderRadius: 28, padding: '22px 34px' }}>
+            <MapPin size={52} color={T.accent} strokeWidth={2.6} />
             <div>
-                <div style={{ color: C.muted, fontSize: 28, fontWeight: 700, letterSpacing: 3 }}>STOP {number}</div>
-                <div style={{ color: C.text, fontSize: 64, fontWeight: 800, lineHeight: 1.05 }}>{stop.name}</div>
+                <div style={{ color: T.muted, fontSize: 28, fontWeight: 700, letterSpacing: 3 }}>STOP {number}</div>
+                <div style={{ color: T.text, fontSize: T.titleFont ? 70 : 64, fontWeight: 800, lineHeight: 1.05, fontFamily: T.titleFont || FONT, letterSpacing: T.titleSpacing || 0 }}>{stop.name}</div>
             </div>
         </div>
     </div>
-);
+    );
+};
 
 const PhotoCard = ({ src, local, index, total }) => {
     // local: frames since this photo started
@@ -491,6 +567,7 @@ const WayPhotoCard = ({ src, local, index, total, color, top }) => {
 };
 
 const StatsBand = ({ timeline, frame }) => {
+    const T = useReelTheme();
     const { segments } = timeline;
     const seg = segments[segmentAt(segments, frame)];
     if (seg.type === 'intro' || seg.type === 'outro') return null;
@@ -506,14 +583,14 @@ const StatsBand = ({ timeline, frame }) => {
             position: 'absolute', left: 60, right: 60, bottom: 90, display: 'flex', alignItems: 'center',
             justifyContent: 'space-between', fontFamily: FONT,
         }}>
-            <div style={{ background: C.panel, borderRadius: 26, padding: '20px 30px' }}>
-                <div style={{ color: C.muted, fontSize: 26, fontWeight: 700, letterSpacing: 3 }}>TRAVELLED</div>
-                <div style={{ color: C.text, fontSize: 60, fontWeight: 800 }}>{fmtKm(km)}</div>
+            <div style={{ ...panelStyle(T), borderRadius: 26, padding: '20px 30px' }}>
+                <div style={{ color: T.muted, fontSize: 26, fontWeight: 700, letterSpacing: 3 }}>TRAVELLED</div>
+                <div style={{ color: T.text, fontSize: 60, fontWeight: 800 }}>{fmtKm(km)}</div>
             </div>
             {Icon && (
-                <div style={{ background: C.panel, borderRadius: 26, padding: '20px 30px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ ...panelStyle(T), borderRadius: 26, padding: '20px 30px', display: 'flex', alignItems: 'center', gap: 16 }}>
                     <Icon size={48} color={MODES[mode].color} strokeWidth={2.4} />
-                    <div style={{ color: C.text, fontSize: 40, fontWeight: 700 }}>{MODES[mode].label}</div>
+                    <div style={{ color: T.text, fontSize: 40, fontWeight: 700 }}>{MODES[mode].label}</div>
                 </div>
             )}
         </div>
@@ -521,17 +598,18 @@ const StatsBand = ({ timeline, frame }) => {
 };
 
 const Intro = ({ title, timeline, frame }) => {
+    const T = useReelTheme();
     const seg = timeline.segments[0];
     if (frame >= seg.dur + 10) return null;
     const inT = clamp01(frame / 18);
     const outT = clamp01((frame - (seg.dur - 12)) / 18);
     const o = inT * (1 - outT);
     return (
-        <AbsoluteFill style={{ background: `rgba(7, 14, 28, ${0.55 * o})`, justifyContent: 'center', alignItems: 'center', fontFamily: FONT }}>
-            <div style={{ opacity: o, transform: `translateY(${(1 - inT) * 40}px)`, textAlign: 'center', padding: '0 70px' }}>
-                <div style={{ color: C.gold, fontSize: 34, fontWeight: 800, letterSpacing: 8 }}>MY TRIP</div>
-                <div style={{ color: C.text, fontSize: 108, fontWeight: 900, lineHeight: 1.02, marginTop: 18 }}>{title}</div>
-                <div style={{ color: C.muted, fontSize: 40, fontWeight: 600, marginTop: 26 }}>
+        <AbsoluteFill style={{ background: T.veil, opacity: o, justifyContent: 'center', alignItems: 'center', fontFamily: FONT }}>
+            <div style={{ transform: `translateY(${(1 - inT) * 40}px)`, textAlign: 'center', padding: '0 70px' }}>
+                <div style={{ color: T.accent, fontSize: 34, fontWeight: 800, letterSpacing: 8 }}>MY TRIP</div>
+                <div style={{ color: T.text, fontSize: T.titleFont ? 122 : 108, fontWeight: 900, lineHeight: 1.02, marginTop: 18, fontFamily: T.titleFont || FONT, letterSpacing: T.titleSpacing || 0 }}>{title}</div>
+                <div style={{ color: T.muted, fontSize: 40, fontWeight: 600, marginTop: 26 }}>
                     {timeline.totals.places} places · {fmtKm(timeline.totals.km)}
                 </div>
             </div>
@@ -540,6 +618,7 @@ const Intro = ({ title, timeline, frame }) => {
 };
 
 const Outro = ({ title, timeline, frame }) => {
+    const T = useReelTheme();
     const { fps } = useVideoConfig();
     const seg = timeline.segments[timeline.segments.length - 1];
     if (frame < seg.start) return null;
@@ -549,41 +628,42 @@ const Outro = ({ title, timeline, frame }) => {
     return (
         <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', fontFamily: FONT, paddingBottom: 150 }}>
             <div style={{
-                width: 900, background: C.panel, borderRadius: 36, padding: '44px 54px',
+                width: 900, ...panelStyle(T), borderRadius: 36, padding: '44px 54px',
                 opacity: clamp01(enter), transform: `translateY(${(1 - enter) * 120}px)`,
             }}>
-                <div style={{ color: C.gold, fontSize: 30, fontWeight: 800, letterSpacing: 6 }}>THAT'S A WRAP</div>
-                <div style={{ color: C.text, fontSize: 66, fontWeight: 900, marginTop: 8, lineHeight: 1.05 }}>{title}</div>
+                <div style={{ color: T.accent, fontSize: 30, fontWeight: 800, letterSpacing: 6 }}>THAT'S A WRAP</div>
+                <div style={{ color: T.text, fontSize: T.titleFont ? 74 : 66, fontWeight: 900, marginTop: 8, lineHeight: 1.05, fontFamily: T.titleFont || FONT, letterSpacing: T.titleSpacing || 0 }}>{title}</div>
                 <div style={{ display: 'flex', gap: 60, marginTop: 30 }}>
                     <div>
-                        <div style={{ color: C.text, fontSize: 64, fontWeight: 800 }}>{timeline.totals.places}</div>
-                        <div style={{ color: C.muted, fontSize: 28, fontWeight: 600 }}>places</div>
+                        <div style={{ color: T.text, fontSize: 64, fontWeight: 800 }}>{timeline.totals.places}</div>
+                        <div style={{ color: T.muted, fontSize: 28, fontWeight: 600 }}>places</div>
                     </div>
                     <div>
-                        <div style={{ color: C.text, fontSize: 64, fontWeight: 800 }}>{fmtKm(timeline.totals.km)}</div>
-                        <div style={{ color: C.muted, fontSize: 28, fontWeight: 600 }}>travelled</div>
+                        <div style={{ color: T.text, fontSize: 64, fontWeight: 800 }}>{fmtKm(timeline.totals.km)}</div>
+                        <div style={{ color: T.muted, fontSize: 28, fontWeight: 600 }}>travelled</div>
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginTop: 30 }}>
                     {rows.map(([mode, km]) => {
                         const Icon = ICONS[mode];
                         return (
-                            <div key={mode} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(255,255,255,0.08)', borderRadius: 20, padding: '12px 20px' }}>
+                            <div key={mode} style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.chip, borderRadius: 20, padding: '12px 20px' }}>
                                 <Icon size={36} color={MODES[mode].color} strokeWidth={2.4} />
-                                <span style={{ color: C.text, fontSize: 30, fontWeight: 700 }}>{fmtKm(km)}</span>
+                                <span style={{ color: T.text, fontSize: 30, fontWeight: 700 }}>{fmtKm(km)}</span>
                             </div>
                         );
                     })}
                 </div>
             </div>
-            <div style={{ color: C.muted, fontSize: 30, fontWeight: 800, letterSpacing: 4, marginTop: 30, opacity: clamp01(enter) }}>Travelator by Adarsh</div>
+            <div style={{ color: T.text, fontSize: 30, fontWeight: 800, letterSpacing: 4, marginTop: 30, opacity: 0.75 * clamp01(enter), textShadow: onMapShadow(T) }}>Travelator by Adarsh</div>
         </AbsoluteFill>
     );
 };
 
 // ---------------------------------------------------------------------------
 
-export const TravelReel = ({ title = 'My trip', stops = [] }) => {
+export const TravelReel = ({ title = 'My trip', stops = [], theme }) => {
+    const T = themeFor(theme);
     const frame = useCurrentFrame();
     const timeline = useMemo(() => buildTimeline(stops), [stops]);
     const cam = cameraAt(timeline.segments, frame);
@@ -618,7 +698,8 @@ export const TravelReel = ({ title = 'My trip', stops = [] }) => {
     );
 
     return (
-        <AbsoluteFill style={{ background: C.sea, overflow: 'hidden' }}>
+        <ReelTheme.Provider value={T}>
+        <AbsoluteFill style={{ background: T.sea, overflow: 'hidden' }}>
             <MapLayer cam={cam} />
             <RouteLayer timeline={timeline} frame={frame} cam={cam} />
             <Vehicle timeline={timeline} frame={frame} cam={cam} />
@@ -628,6 +709,12 @@ export const TravelReel = ({ title = 'My trip', stops = [] }) => {
             <StatsBand timeline={timeline} frame={frame} />
             <Intro title={title} timeline={timeline} frame={frame} />
             <Outro title={title} timeline={timeline} frame={frame} />
+            {T.credit && (
+                <div style={{ position: 'absolute', left: 0, right: 0, bottom: 28, textAlign: 'center', fontFamily: FONT, fontSize: 20, color: 'rgba(255, 255, 255, 0.75)', textShadow: '0 1px 4px rgba(0, 0, 0, 0.8)' }}>
+                    {T.credit}
+                </div>
+            )}
         </AbsoluteFill>
+        </ReelTheme.Provider>
     );
 };

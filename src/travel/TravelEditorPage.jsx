@@ -13,11 +13,22 @@ import { readPhotoInfo, groupIntoStops, placeByTime, guessMode } from './photoTr
 import { TravelReel } from './TravelReel';
 import { REEL, MODES, TIMING, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
 import { loadWorld } from './world';
+import { THEMES, DEFAULT_THEME } from './themes';
 
 const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike };
 const MAX_STOPS = 20;
 const MAX_PHOTOS = 4;
 const DRAFT_KEY = 'travel-reel-draft-v1';
+const THEME_KEY = 'travel-reel-theme';
+
+const loadThemeKey = () => {
+    try {
+        const k = localStorage.getItem(THEME_KEY);
+        return THEMES[k] ? k : DEFAULT_THEME;
+    } catch {
+        return DEFAULT_THEME;
+    }
+};
 let nextId = 1;
 const newId = () => `${Date.now().toString(36)}-${nextId++}`;
 
@@ -263,7 +274,48 @@ async function pickFormat(renderer) {
     return { container: 'webm', videoCodec: codec, ext: 'webm' };
 }
 
-const ReelView = ({ title, stops, onBack }) => {
+// A small preview of each map style: its sea, land and route colours
+const ThemeSwatch = ({ t }) => (
+    <svg viewBox="0 0 64 40" className="h-10 w-16 rounded-lg" aria-hidden="true">
+        {t.satellite ? (
+            <>
+                <rect width="64" height="40" fill="#1d3b55" />
+                <path d="M0 26 C14 18 22 30 34 20 S54 10 64 14 V40 H0 Z" fill="#4f6b3a" />
+                <path d="M30 12 C36 16 44 14 50 22 L64 22 V40 H38 Z" fill="#8a7a55" opacity="0.8" />
+            </>
+        ) : (
+            <>
+                <rect width="64" height="40" fill={t.sea} />
+                <path d="M0 26 C14 18 22 30 34 20 S54 10 64 14 V40 H0 Z" fill={t.land} stroke={t.landStroke || 'none'} strokeWidth={t.landStroke ? 1.5 : 0} />
+            </>
+        )}
+        <path d="M8 32 C20 24 34 30 52 12" fill="none" stroke="#ef5b6f" strokeWidth="3" strokeLinecap="round" />
+        <circle cx="52" cy="12" r="4" fill="#f0c34e" stroke={t.landStrokeWidth >= 3 ? '#000' : '#fff'} strokeWidth="1.5" />
+    </svg>
+);
+
+const ThemePicker = ({ value, onChange }) => (
+    <div className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-widest text-text-muted">Map style</p>
+        <div role="radiogroup" aria-label="Map style" className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {Object.entries(THEMES).map(([key, t]) => (
+                <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={value === key}
+                    onClick={() => onChange(key)}
+                    className={`flex flex-col items-center gap-1 rounded-xl border p-2 text-xs font-bold transition-colors ${value === key ? 'border-gold bg-night-card text-snow' : 'border-frost/15 text-text-muted hover:border-frost/40'}`}
+                >
+                    <ThemeSwatch t={t} />
+                    {t.label}
+                </button>
+            ))}
+        </div>
+    </div>
+);
+
+const ReelView = ({ title, stops, onBack, theme, onTheme }) => {
     const [ready, setReady] = useState(false);
     const [exporting, setExporting] = useState(null); // { progress } while rendering
     const [download, setDownload] = useState(null);
@@ -272,8 +324,9 @@ const ReelView = ({ title, stops, onBack }) => {
 
     const inputProps = useMemo(() => ({
         title,
+        theme,
         stops: stops.map((s, i) => ({ name: s.name, lat: s.lat, lng: s.lng, mode: s.mode, route: s.route || null, photos: s.photos.map((p) => p.url), wayPhotos: i > 0 ? (s.wayPhotos || []).map((p) => p.url) : [] })),
-    }), [title, stops]);
+    }), [title, stops, theme]);
     const duration = useMemo(() => buildTimeline(inputProps.stops).durationInFrames, [inputProps]);
 
     useEffect(() => {
@@ -292,6 +345,8 @@ const ReelView = ({ title, stops, onBack }) => {
         abortRef.current = controller;
         setExporting({ progress: 0 });
         try {
+            // Make sure the comic and manga lettering is loaded before any frame is drawn
+            await document.fonts?.load('40px "Bangers"').catch(() => {});
             const renderer = await import('@remotion/web-renderer');
             const format = await pickFormat(renderer);
             const result = await renderer.renderMediaOnWeb({
@@ -355,6 +410,8 @@ const ReelView = ({ title, stops, onBack }) => {
                 <p className="text-text-muted">
                     {stops.length} stops · {(duration / REEL.fps).toFixed(0)} second reel · 1080 × 1920, ready for Reels, Shorts and Stories.
                 </p>
+
+                {!exporting && <ThemePicker value={theme} onChange={(k) => { setDownload(null); onTheme(k); }} />}
 
                 {!exporting && (
                     <button
@@ -455,6 +512,8 @@ export default function TravelEditorPage() {
     const [message, setMessage] = useState('');
     const [focus, setFocus] = useState(null);
     const [view, setView] = useState('edit');
+    const [theme, setTheme] = useState(loadThemeKey);
+    useEffect(() => { try { localStorage.setItem(THEME_KEY, theme); } catch { /* storage blocked */ } }, [theme]);
     const [importing, setImporting] = useState(null); // { label, done, total } while building from photos
     const importRef = useRef(null);
 
@@ -644,7 +703,7 @@ export default function TravelEditorPage() {
             </header>
 
             {view === 'reel' ? (
-                <ReelView title={title} stops={stops.map((s, i) => ({ ...s, route: keys[i] ? routes[keys[i]] : null }))} onBack={() => setView('edit')} />
+                <ReelView title={title} stops={stops.map((s, i) => ({ ...s, route: keys[i] ? routes[keys[i]] : null }))} onBack={() => setView('edit')} theme={theme} onTheme={setTheme} />
             ) : (
                 <div className="grid md:h-[calc(100vh-57px)] md:grid-cols-[400px_1fr]">
                     <aside className="order-2 flex flex-col gap-4 overflow-y-auto p-4 md:order-1 [&>*]:shrink-0">

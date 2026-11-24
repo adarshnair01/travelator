@@ -11,7 +11,7 @@ Or build the trip by hand:
 1. Search for each place you visited (a city or a landmark), click it on the map, or tap one of the famous spots suggested near your latest stop.
 2. Pick how you got there from the last stop: car, bike, train or flight.
 3. Add up to four photos at each stop. Optionally add up to three photos taken on the way: the vehicle pauses partway along that leg to show them.
-4. Press **Done, make my reel** to watch it, then **Download** to save the video (MP4, or WebM where MP4 isn't supported).
+4. Press **Done, make my reel** to watch it and pick a map style (Minimal, Satellite, Black & white, Comic, Manga, Vintage atlas or Midnight), then **Download** to save the video (MP4, or WebM where MP4 isn't supported).
 
 Photos never leave your device; the video is made in your browser.
 
@@ -29,6 +29,7 @@ Photos never leave your device; the video is made in your browser.
 | `src/travel/geo.js` | Map camera, timeline and route curves |
 | `src/travel/geocode.js` | Place search, reverse lookup and famous spots nearby |
 | `src/travel/routes.js` | Land-following routes for car and train legs |
+| `src/travel/themes.js` | Map styles: map colours and textures, panel looks, satellite tiles |
 | `src/travel/photoTrip.js` | Reading photo location and time, and grouping photos into stops |
 | `src/travel/world.js` | Loads the world map |
 
@@ -45,4 +46,4 @@ The app is built for the `/travelator/` folder (`base` in `vite.config.js`). It 
 
 Pushes and pull requests here run lint and build (`.github/workflows/check.yml`).
 
-Map data © OpenStreetMap contributors.
+Map data © OpenStreetMap contributors. Country shapes from Natural Earth. Satellite imagery: Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0.
