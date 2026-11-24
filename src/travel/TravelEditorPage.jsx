@@ -5,12 +5,12 @@ import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
     Plane, TrainFront, Car, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
-    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus,
+    Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Plus, Camera,
 } from 'lucide-react';
 import { searchPlaces, reverseLookup, famousNearby } from './geocode';
 import { getRoute, routeKey } from './routes';
 import { TravelReel } from './TravelReel';
-import { REEL, MODES, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
+import { REEL, MODES, TIMING, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
 import { loadWorld } from './world';
 
 const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car };
@@ -28,7 +28,7 @@ function loadDraft() {
         if (d && Array.isArray(d.stops)) {
             return {
                 title: d.title || 'My trip',
-                stops: d.stops.map((s) => ({ ...s, id: newId(), photos: [] })),
+                stops: d.stops.map((s) => ({ ...s, id: newId(), photos: [], wayPhotos: [] })),
                 routes: d.routes && typeof d.routes === 'object' ? d.routes : {},
             };
         }
@@ -157,8 +157,20 @@ const ModePicker = ({ value, onChange, label }) => (
     </div>
 );
 
-const StopCard = ({ stop, index, total, onChange, onRemove, onMove, onAddPhotos, onRemovePhoto, prev }) => {
+// Thumbnail with a remove button, used for stop photos and photos on the way.
+const Thumb = ({ url, onRemove, small }) => (
+    <div className={`group relative overflow-hidden rounded-lg ${small ? 'h-11 w-11' : 'h-14 w-14'}`}>
+        <img src={url} alt="" className="h-full w-full object-cover" />
+        <button type="button" onClick={onRemove} className="absolute right-0.5 top-0.5 rounded-full bg-night/80 p-0.5 text-snow" aria-label="Remove photo">
+            <X size={12} />
+        </button>
+    </div>
+);
+
+const StopCard = ({ stop, index, total, onChange, onRemove, onMove, onAddPhotos, onRemovePhoto, onAddWayPhotos, onRemoveWayPhoto, prev }) => {
     const fileRef = useRef(null);
+    const wayRef = useRef(null);
+    const wayPhotos = stop.wayPhotos || [];
     const km = prev ? distanceKm(prev, stop) : 0;
     return (
         <li className="rounded-2xl border border-frost/15 bg-night-card p-3">
@@ -166,6 +178,28 @@ const StopCard = ({ stop, index, total, onChange, onRemove, onMove, onAddPhotos,
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-frost/10 pb-3">
                     <span className="text-xs text-text-muted">From stop {index} · {Math.round(km).toLocaleString('en-IN')} km by</span>
                     <ModePicker value={stop.mode} onChange={(mode) => onChange({ mode })} label={`How you travelled to stop ${index + 1}`} />
+                    <div className="flex w-full flex-wrap items-center gap-2">
+                        {wayPhotos.map((p) => <Thumb key={p.id} url={p.url} small onRemove={() => onRemoveWayPhoto(p.id)} />)}
+                        {wayPhotos.length < TIMING.maxWayPhotos && (
+                            <button
+                                type="button"
+                                onClick={() => wayRef.current?.click()}
+                                className="flex items-center gap-1.5 rounded-full border border-dashed border-frost/30 px-3 py-1.5 text-xs text-text-muted hover:border-gold hover:text-gold"
+                            >
+                                <Camera size={14} aria-hidden="true" /> {wayPhotos.length ? 'Add another' : 'Photo on the way'}
+                                {!wayPhotos.length && <span className="text-text-muted/70">(optional)</span>}
+                            </button>
+                        )}
+                        <input
+                            ref={wayRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            hidden
+                            aria-label={`Photos taken on the way to stop ${index + 1}`}
+                            onChange={(e) => { onAddWayPhotos([...e.target.files]); e.target.value = ''; }}
+                        />
+                    </div>
                 </div>
             )}
             <div className="flex items-start gap-3">
@@ -182,19 +216,7 @@ const StopCard = ({ stop, index, total, onChange, onRemove, onMove, onAddPhotos,
                         <Pencil size={12} className="shrink-0 text-text-muted" aria-hidden="true" />
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                        {stop.photos.map((p) => (
-                            <div key={p.id} className="group relative h-14 w-14 overflow-hidden rounded-lg">
-                                <img src={p.url} alt="" className="h-full w-full object-cover" />
-                                <button
-                                    type="button"
-                                    onClick={() => onRemovePhoto(p.id)}
-                                    className="absolute right-0.5 top-0.5 rounded-full bg-night/80 p-0.5 text-snow"
-                                    aria-label="Remove photo"
-                                >
-                                    <X size={12} />
-                                </button>
-                            </div>
-                        ))}
+                        {stop.photos.map((p) => <Thumb key={p.id} url={p.url} onRemove={() => onRemovePhoto(p.id)} />)}
                         {stop.photos.length < MAX_PHOTOS && (
                             <button
                                 type="button"
@@ -248,7 +270,7 @@ const ReelView = ({ title, stops, onBack }) => {
 
     const inputProps = useMemo(() => ({
         title,
-        stops: stops.map((s) => ({ name: s.name, lat: s.lat, lng: s.lng, mode: s.mode, route: s.route || null, photos: s.photos.map((p) => p.url) })),
+        stops: stops.map((s, i) => ({ name: s.name, lat: s.lat, lng: s.lng, mode: s.mode, route: s.route || null, photos: s.photos.map((p) => p.url), wayPhotos: i > 0 ? (s.wayPhotos || []).map((p) => p.url) : [] })),
     }), [title, stops]);
     const duration = useMemo(() => buildTimeline(inputProps.stops).durationInFrames, [inputProps]);
 
@@ -453,7 +475,7 @@ export default function TravelEditorPage() {
     const addStop = useCallback((place) => {
         setStops((prev) => {
             if (prev.length >= MAX_STOPS) return prev;
-            return [...prev, { id: newId(), name: place.name, lat: place.lat, lng: place.lng, mode: prev.length ? nextMode : null, photos: [] }];
+            return [...prev, { id: newId(), name: place.name, lat: place.lat, lng: place.lng, mode: prev.length ? nextMode : null, photos: [], wayPhotos: [] }];
         });
         setFocus({ lat: place.lat, lng: place.lng, t: Date.now() });
         setResults([]);
@@ -490,7 +512,7 @@ export default function TravelEditorPage() {
     const update = (id, patch) => setStops((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     const remove = (id) => setStops((prev) => {
         const gone = prev.find((s) => s.id === id);
-        gone?.photos.forEach((p) => URL.revokeObjectURL(p.url));
+        [...(gone?.photos || []), ...(gone?.wayPhotos || [])].forEach((p) => URL.revokeObjectURL(p.url));
         const next = prev.filter((s) => s.id !== id);
         if (next[0]) next[0] = { ...next[0], mode: null };
         return next;
@@ -517,8 +539,22 @@ export default function TravelEditorPage() {
         s.photos.filter((p) => p.id === photoId).forEach((p) => URL.revokeObjectURL(p.url));
         return { ...s, photos: s.photos.filter((p) => p.id !== photoId) };
     }));
+    const addWayPhotos = async (id, files) => {
+        const stop = stops.find((s) => s.id === id);
+        const room = TIMING.maxWayPhotos - (stop?.wayPhotos?.length || 0);
+        const prepared = [];
+        for (const f of files.slice(0, room)) {
+            try { prepared.push(await preparePhoto(f)); } catch { setMessage(`Could not read ${f.name}.`); }
+        }
+        setStops((prev) => prev.map((s) => (s.id === id ? { ...s, wayPhotos: [...(s.wayPhotos || []), ...prepared].slice(0, TIMING.maxWayPhotos) } : s)));
+    };
+    const removeWayPhoto = (id, photoId) => setStops((prev) => prev.map((s) => {
+        if (s.id !== id) return s;
+        (s.wayPhotos || []).filter((p) => p.id === photoId).forEach((p) => URL.revokeObjectURL(p.url));
+        return { ...s, wayPhotos: (s.wayPhotos || []).filter((p) => p.id !== photoId) };
+    }));
     const clearAll = () => {
-        stops.forEach((s) => s.photos.forEach((p) => URL.revokeObjectURL(p.url)));
+        stops.forEach((s) => [...s.photos, ...(s.wayPhotos || [])].forEach((p) => URL.revokeObjectURL(p.url)));
         setStops([]);
         setMessage('Trip cleared.');
     };
@@ -612,6 +648,8 @@ export default function TravelEditorPage() {
                                             onMove={(dir) => move(i, dir)}
                                             onAddPhotos={(files) => addPhotos(s.id, files)}
                                             onRemovePhoto={(pid) => removePhoto(s.id, pid)}
+                                            onAddWayPhotos={(files) => addWayPhotos(s.id, files)}
+                                            onRemoveWayPhoto={(pid) => removeWayPhoto(s.id, pid)}
                                         />
                                     ))}
                                 </ol>

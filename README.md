@@ -6,7 +6,7 @@ Turn a trip into a vertical travel reel, right in the browser: **https://adarshn
 
 1. Search for each place you visited (a city or a landmark), click it on the map, or tap one of the famous spots suggested near your latest stop.
 2. Pick how you got there from the last stop: car, train or flight.
-3. Add up to four photos at each stop.
+3. Add up to four photos at each stop. Optionally add up to three photos taken on the way: the vehicle pauses partway along that leg to show them.
 4. Press **Done, make my reel** to watch it, then **Download** to save the video (MP4, or WebM where MP4 isn't supported).
 
 Photos never leave your device; the video is made in your browser.

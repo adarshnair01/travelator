@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { geoMercator, geoPath, geoGraticule10 } from 'd3-geo';
-import { Plane, TrainFront, Car, MapPin } from 'lucide-react';
+import { Plane, TrainFront, Car, MapPin, Camera } from 'lucide-react';
 import {
     REEL, MODES, TIMING, buildTimeline, cameraAt, segmentAt, legProgress, legPath,
-    toPathD, headingDeg, project, clamp01, pointBack,
+    toPathD, headingDeg, project, clamp01, pointBack, wayPhotoAt, wayPoint,
 } from './geo';
 import { getWorld } from './world';
 
@@ -111,14 +111,19 @@ const RouteLayer = ({ timeline, frame, cam }) => {
         else progress = legProgress(leg, frame);
         if (progress <= 0) return;
         const pts = legPath(cam, leg, progress);
-        drawn.push({ leg, d: toPathD(pts) });
+        // Where each photo on the way was taken, once the vehicle has reached it
+        const spots = (leg.wayPhotos || [])
+            .map((_, k) => wayPoint(leg, k))
+            .filter((f) => progress >= f - 1e-6)
+            .map((f) => legPath(cam, leg, f).at(-1));
+        drawn.push({ leg, d: toPathD(pts), spots });
     });
 
     // A stop is "reached" once the vehicle gets there
     const reached = stops.map((_, i) => {
         if (i === 0) return frame >= (segments[1]?.start ?? 0);
         const leg = legs.find((l) => l.index === i);
-        return isOutro || frame >= leg.start + leg.dur * 0.9;
+        return isOutro || frame >= leg.start + leg.dur || (frame >= leg.start && legProgress(leg, frame) >= 0.97);
     });
     const activeStop = current.type === 'stop' ? current.index : null;
 
@@ -130,7 +135,7 @@ const RouteLayer = ({ timeline, frame, cam }) => {
 
     return (
         <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
-            {drawn.map(({ leg, d }) => {
+            {drawn.map(({ leg, d, spots }) => {
                 const color = MODES[leg.mode].color;
                 return (
                     <g key={leg.index}>
@@ -149,6 +154,12 @@ const RouteLayer = ({ timeline, frame, cam }) => {
                         {leg.mode === 'car' && (
                             <path d={d} fill="none" stroke={color} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
                         )}
+                        {spots.map(([sx, sy], k) => (
+                            <g key={`spot-${k}`} transform={`translate(${sx.toFixed(1)} ${sy.toFixed(1)})`}>
+                                <circle r={15} fill="#fbf4e4" stroke={color} strokeWidth={5} />
+                                <circle r={5} fill="#0b1628" />
+                            </g>
+                        ))}
                     </g>
                 );
             })}
@@ -379,6 +390,32 @@ const PhotoCard = ({ src, local, index, total }) => {
     );
 };
 
+// A photo taken on the way: a smaller polaroid that pops up while the vehicle pauses.
+const WayPhotoCard = ({ src, local, index, total, color, top }) => {
+    const { fps } = useVideoConfig();
+    const enter = spring({ frame: local, fps, config: { damping: 13, mass: 0.7 } });
+    const leave = clamp01((local - (TIMING.wayPhoto - 10)) / 10);
+    const tilt = index % 2 === 0 ? 3 : -3;
+    const zoom = interpolate(local, [0, TIMING.wayPhoto], [1, 1.08], { extrapolateRight: 'clamp' });
+    return (
+        <div style={{
+            position: 'absolute', left: 190, top, width: 700, padding: 20, paddingBottom: 22,
+            background: '#fbf4e4', borderRadius: 18, boxShadow: '0 30px 60px rgba(0,0,0,0.5)', opacity: 1 - leave,
+            transform: `translateY(${(1 - enter) * 600 + leave * 60}px) scale(${0.85 + 0.15 * enter}) rotate(${tilt * enter}deg)`,
+        }}>
+            <div style={{ width: 660, height: 560, overflow: 'hidden', borderRadius: 8, background: '#ddd' }}>
+                <Img src={src} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${zoom})` }} />
+            </div>
+            <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: FONT, color: '#2b1d14' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 28, fontWeight: 800 }}>
+                    <Camera size={30} color={color} strokeWidth={2.6} /> On the way
+                </div>
+                {total > 1 && <div style={{ fontSize: 26, fontWeight: 700 }}>{index + 1} / {total}</div>}
+            </div>
+        </div>
+    );
+};
+
 const StatsBand = ({ timeline, frame }) => {
     const { segments } = timeline;
     const seg = segments[segmentAt(segments, frame)];
@@ -496,6 +533,16 @@ export const TravelReel = ({ title = 'My trip', stops = [] }) => {
         );
     }
 
+    const way = wayPhotoAt(seg, frame);
+    // Keep the card clear of the paused vehicle: below it, or above it when it's low on screen
+    const vehicleY = way ? legPath(cam, seg, legProgress(seg, frame)).at(-1)[1] : 0;
+    const wayOverlay = way && (
+        <WayPhotoCard
+            src={seg.wayPhotos[way.index]} local={way.local} index={way.index} total={seg.wayPhotos.length}
+            color={MODES[seg.mode].color} top={vehicleY > 860 ? 270 : 880}
+        />
+    );
+
     return (
         <AbsoluteFill style={{ background: C.sea, overflow: 'hidden' }}>
             <MapLayer cam={cam} />
@@ -503,6 +550,7 @@ export const TravelReel = ({ title = 'My trip', stops = [] }) => {
             <Vehicle timeline={timeline} frame={frame} cam={cam} />
             <TopBand title={title} timeline={timeline} frame={frame} />
             {stopOverlay}
+            {wayOverlay}
             <StatsBand timeline={timeline} frame={frame} />
             <Intro title={title} timeline={timeline} frame={frame} />
             <Outro title={title} timeline={timeline} frame={frame} />

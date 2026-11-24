@@ -100,6 +100,8 @@ export const TIMING = {
     stopBase: 45,
     perPhoto: 48,
     maxPhotos: 4,
+    wayPhoto: 54, // pause on a leg for each photo taken on the way
+    maxWayPhotos: 3,
     outro: 120,
 };
 
@@ -131,7 +133,12 @@ export function buildTimeline(rawStops) {
             const mode = MODES[stop.mode] ? stop.mode : 'car';
             const legCam = fitCamera([from, to], { pad: mode === 'flight' ? 220 : 180 });
             const route = mode !== 'flight' && Array.isArray(stop.route) && stop.route.length > 1 ? unwrapRoute(from, stop.route) : null;
-            push({ type: 'leg', index: i, from, to, mode, km, kmBefore: travelled, dur: legFrames(km), cam: legCam, route });
+            const wayPhotos = (stop.wayPhotos || []).slice(0, TIMING.maxWayPhotos);
+            const moveDur = legFrames(km);
+            push({
+                type: 'leg', index: i, from, to, mode, km, kmBefore: travelled, cam: legCam, route,
+                wayPhotos, moveDur, dur: moveDur + TIMING.wayPhoto * wayPhotos.length,
+            });
             travelled += km;
             byMode[mode] += km;
         }
@@ -180,9 +187,52 @@ export function cameraAt(segments, frame) {
 }
 
 // Leg progress (0..1) at a frame: the vehicle waits for the camera, then moves.
+// With photos taken on the way, it eases into a stop at evenly spaced points along
+// the route, waits there while the photo shows, then carries on.
+export const wayPoint = (seg, k) => (k + 1) / (seg.wayPhotos.length + 1);
+
+function legPlan(seg) {
+    const n = seg.wayPhotos?.length || 0;
+    const base = seg.moveDur ?? seg.dur;
+    const delay = base * 0.18;
+    const move = base * 0.72;
+    const marks = [0, ...Array.from({ length: n }, (_, k) => (k + 1) / (n + 1)), 1];
+    const pieces = [];
+    let t = delay;
+    for (let i = 0; i < marks.length - 1; i += 1) {
+        const frames = move * (marks[i + 1] - marks[i]);
+        pieces.push({ from: marks[i], to: marks[i + 1], start: t, frames });
+        t += frames;
+        if (i < n) t += TIMING.wayPhoto; // the pause for photo i
+    }
+    return pieces;
+}
+
 export function legProgress(seg, frame) {
-    const t = (frame - seg.start) / seg.dur;
-    return easeInOut(clamp01((t - 0.18) / 0.72));
+    const local = frame - seg.start;
+    if (!seg.wayPhotos?.length) {
+        const t = local / seg.dur;
+        return easeInOut(clamp01((t - 0.18) / 0.72));
+    }
+    const pieces = legPlan(seg);
+    if (local <= pieces[0].start) return 0;
+    for (const p of pieces) {
+        if (local <= p.start + p.frames) return p.from + (p.to - p.from) * easeInOut(clamp01((local - p.start) / p.frames));
+        if (local < p.start + p.frames + TIMING.wayPhoto && p.to < 1) return p.to;
+    }
+    return 1;
+}
+
+// The photo on the way showing at a frame, as { index, local frames into its pause }, or null.
+export function wayPhotoAt(seg, frame) {
+    if (seg.type !== 'leg' || !seg.wayPhotos?.length) return null;
+    const local = frame - seg.start;
+    const pieces = legPlan(seg);
+    for (let k = 0; k < seg.wayPhotos.length; k += 1) {
+        const pauseStart = pieces[k].start + pieces[k].frames;
+        if (local >= pauseStart && local < pauseStart + TIMING.wayPhoto) return { index: k, local: local - pauseStart };
+    }
+    return null;
 }
 
 // ---- Leg shapes --------------------------------------------------------------
