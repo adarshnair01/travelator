@@ -134,7 +134,7 @@ export function buildTimeline(rawStops) {
             const to = stop;
             const km = distanceKm(from, stop);
             const mode = MODES[stop.mode] ? stop.mode : 'car';
-            const legCam = fitCamera([from, to], { pad: mode === 'flight' ? 220 : 180 });
+            const legCam = fitCamera([from, to], { pad: 180 });
             const route = mode !== 'flight' && Array.isArray(stop.route) && stop.route.length > 1 ? unwrapRoute(from, stop.route) : null;
             const wayPhotos = (stop.wayPhotos || []).slice(0, TIMING.maxWayPhotos);
             const moveDur = legFrames(km);
@@ -256,7 +256,7 @@ export const legSeed = (a, b) =>
 
 /**
  * Points from p0 to p1 (any 2D space) shaped by travel mode:
- *  - flight: one smooth parabolic arc bulging "up"
+ *  - flight: one shallow parabolic arc bulging "up"
  *  - car, bike and bus: a winding road, several bends of decreasing size
  *  - train and ferry: a gentle sweeping curve, like a rail line or a sea lane
  * Bends taper to zero at both ends so the line always meets its stops.
@@ -271,7 +271,7 @@ export function curvePoints(p0, p1, mode, seed, { samples = 120, upIsNegativeY =
     const pts = [];
     if (mode === 'flight') {
         if (upIsNegativeY ? ny > 0 : ny < 0) { nx = -nx; ny = -ny; }
-        const h = len * 0.32;
+        const h = len * 0.12; // a shallow arc, like a flight path on an airline map
         for (let k = 0; k <= samples; k++) {
             const u = k / samples;
             const off = 4 * h * u * (1 - u); // parabola: 0 at both ends, h in the middle
