@@ -4,19 +4,19 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Player } from '@remotion/player';
 import {
-    Plane, TrainFront, Car, Motorbike, Bus, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
+    Plane, TrainFront, Car, Motorbike, Bus, Ship, Search, Trash2, ArrowUp, ArrowDown, ImagePlus, X, Film,
     Download, ArrowLeft, Loader2, MapPin, Pencil, Landmark, Camera, Images,
 } from 'lucide-react';
 import { searchPlaces, reverseLookup, suggestPlaces } from './geocode';
-import { getRoute, routeKey, ROAD_MODES } from './routes';
+import { getRoute, routeKey, ROUTED_MODES } from './routes';
 import { readPhotoInfo, groupIntoStops, placeByTime, guessMode } from './photoTrip';
 import { TravelReel } from './TravelReel';
 import { REEL, MODES, TIMING, buildTimeline, distanceKm, curvePoints, legSeed } from './geo';
 import { loadWorld } from './world';
 import { THEMES, DEFAULT_THEME } from './themes';
 
-const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike, bus: Bus };
-const MAX_STOPS = 20;
+const MODE_ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike, bus: Bus, ferry: Ship };
+const MAX_STOPS = 30;
 const MAX_PHOTOS = 4;
 const DRAFT_KEY = 'travel-reel-draft-v1';
 const THEME_KEY = 'travel-reel-theme';
@@ -50,8 +50,8 @@ function loadDraft() {
     return { title: 'My trip', stops: [], routes: {} };
 }
 
-// The route key of each leg over land (car, bike, bus and train), indexed by the stop it arrives at.
-const legKeys = (stops) => stops.map((s, i) => (i > 0 && ROAD_MODES.has(s.mode) ? routeKey(stops[i - 1], s, s.mode) : null));
+// The route key of each leg with a stored route (all but flights), indexed by the stop it arrives at.
+const legKeys = (stops) => stops.map((s, i) => (i > 0 && ROUTED_MODES.has(s.mode) ? routeKey(stops[i - 1], s, s.mode) : null));
 
 function saveDraft(title, stops, routes) {
     const keep = {};
@@ -135,6 +135,7 @@ const TripMap = ({ stops, routes, onPick, adding, focus }) => (
                     <Polyline positions={positions} pathOptions={{ color, weight: s.mode === 'train' ? 7 : 4 }} />
                     {s.mode === 'train' && <Polyline positions={positions} pathOptions={{ color: '#0b1628', weight: 2 }} />}
                     {s.mode === 'bus' && <Polyline positions={positions} pathOptions={{ color: '#f4f7fc', weight: 3, dashArray: '1 14', lineCap: 'round' }} />}
+                    {s.mode === 'ferry' && <Polyline positions={positions} pathOptions={{ color: '#f4f7fc', weight: 2, dashArray: '10 10' }} />}
                     {s.mode === 'bike' && <Polyline positions={positions} pathOptions={{ color: '#f4f7fc', weight: 1.5, dashArray: '6 8' }} />}
                 </Fragment>
             );

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { geoMercator, geoPath, geoGraticule10 } from 'd3-geo';
-import { Plane, TrainFront, Car, Motorbike, Bus, MapPin, Camera } from 'lucide-react';
+import { Plane, TrainFront, Car, Motorbike, Bus, Ship, MapPin, Camera } from 'lucide-react';
 import {
     REEL, MODES, TIMING, buildTimeline, cameraAt, segmentAt, legProgress, legPath,
     toPathD, headingDeg, project, clamp01, pointBack, wayPhotoAt, wayPoint,
@@ -14,7 +14,7 @@ const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sa
 const C = {
     gold: '#f0c34e',
 };
-const ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike, bus: Bus };
+const ICONS = { flight: Plane, train: TrainFront, car: Car, bike: Motorbike, bus: Bus, ferry: Ship };
 
 const fmtKm = (km) => `${Math.round(km).toLocaleString('en-IN')} km`;
 
@@ -190,6 +190,13 @@ const RouteLayer = ({ timeline, frame, cam }) => {
                             <>
                                 <path d={d} fill="none" stroke={color} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
                                 <path d={d} fill="none" stroke="#f4f7fc" strokeOpacity={0.85} strokeWidth={2.5} strokeDasharray="12 14" />
+                            </>
+                        )}
+                        {leg.mode === 'ferry' && (
+                            <>
+                                {/* a teal sea lane with a white wake down the middle */}
+                                <path d={d} fill="none" stroke={color} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
+                                <path d={d} fill="none" stroke="#ffffff" strokeOpacity={0.9} strokeWidth={3} strokeLinecap="round" strokeDasharray="16 12" />
                             </>
                         )}
                         {leg.mode === 'car' && (
@@ -390,6 +397,47 @@ const BusArt = ({ frame }) => {
     );
 };
 
+// Cartoon ferry seen from the side, bow to the right: a teal hull with a white
+// lifebelt stripe, two passenger decks, a funnel puffing smoke, rocking on waves.
+const FerryArt = ({ frame }) => {
+    const rock = Math.sin(frame * 0.22) * 3;
+    const bob = Math.sin(frame * 0.22 + 1) * 2;
+    const color = MODES.ferry.color;
+    const wave = (frame * 1.6) % 24;
+    return (
+        <g>
+            <g transform={`translate(0 ${bob.toFixed(2)}) rotate(${rock.toFixed(2)})`}>
+                {/* funnel and its smoke */}
+                {[0, 1].map((k) => {
+                    const ph = ((frame * 0.7 + k * 14) % 28) / 28;
+                    return <circle key={k} cx={-8 - ph * 14} cy={-40 - ph * 16} r={4 + ph * 6} fill="#f4f7fc" stroke="#cfd8e3" strokeWidth={1.5} opacity={(1 - ph) * 0.85} />;
+                })}
+                <path d="M-14 -36 L-2 -36 L0 -22 L-16 -22 Z" fill="#ef5b6f" stroke="#0b1628" strokeWidth={2.5} strokeLinejoin="round" />
+                <rect x={-15} y={-31} width={15} height={3.5} fill="#0b1628" />
+                {/* decks */}
+                <rect x={-24} y={-23} width={38} height={11} rx={3} fill="#f4f7fc" stroke="#0b1628" strokeWidth={2.5} />
+                <rect x={-34} y={-13} width={58} height={12} rx={3} fill="#f4f7fc" stroke="#0b1628" strokeWidth={2.5} />
+                {[-18, -9, 0].map((x) => <rect key={x} x={x} y={-20.5} width={6} height={5.5} rx={1.5} fill="#5aa9e6" />)}
+                {[-28, -18, -8, 2, 12].map((x) => <circle key={x} cx={x + 3} cy={-7} r={2.8} fill="#5aa9e6" />)}
+                <path d="M14 -23 L22 -14 L14 -14 Z" fill="#bfe6ff" stroke="#0b1628" strokeWidth={2} strokeLinejoin="round" />
+                {/* hull */}
+                <path d="M-46 -2 L44 -2 Q40 14 28 18 L-36 18 Q-44 12 -46 -2 Z" fill={color} stroke="#0b1628" strokeWidth={3.5} strokeLinejoin="round" />
+                <path d="M-43 5 L42 5" stroke="#fff" strokeWidth={3} strokeLinecap="round" />
+                <circle cx={-26} cy={11} r={3.5} fill="none" stroke="#ef5b6f" strokeWidth={2.5} />
+                {/* flag on the bow */}
+                <line x1={36} y1={-2} x2={36} y2={-22} stroke="#0b1628" strokeWidth={2} />
+                <path d={`M36 -22 L${47 + Math.sin(frame * 0.5) * 2} -18 L36 -14 Z`} fill={C.gold} stroke="#0b1628" strokeWidth={1.5} strokeLinejoin="round" />
+            </g>
+            {/* waves rolling past the hull, kept inside the badge */}
+            <clipPath id="ferry-waves"><circle r={50} /></clipPath>
+            <g clipPath="url(#ferry-waves)">
+            <path d={`M${-54 - wave} 22 q6 -5 12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0`} fill="none" stroke="#ffffff" strokeWidth={3.5} strokeLinecap="round" opacity={0.95} />
+            <path d={`M${-50 - ((wave + 12) % 24)} 29 q6 -4 12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0 t12 0`} fill="none" stroke="#bfe6ff" strokeWidth={2.5} strokeLinecap="round" opacity={0.8} />
+            </g>
+        </g>
+    );
+};
+
 // Cartoon plane seen from above, nose pointing right.
 const PlaneArt = () => (
     <g>
@@ -475,10 +523,10 @@ const Vehicle = ({ timeline, frame, cam }) => {
     // The plane points along its arc and banks gently; road vehicles stay upright and face their direction
     const art = seg.mode === 'flight'
         ? <g transform={`rotate(${(heading + Math.sin(frame * 0.15) * 4).toFixed(1)}) scale(0.95)`}><PlaneArt /></g>
-        : <g transform={`scale(${Math.abs(heading) > 90 ? -1 : 1} 1)`}>{seg.mode === 'bike' ? <BikeArt frame={frame} /> : seg.mode === 'bus' ? <BusArt frame={frame} /> : <CarArt frame={frame} />}</g>;
+        : <g transform={`scale(${Math.abs(heading) > 90 ? -1 : 1} 1)`}>{seg.mode === 'bike' ? <BikeArt frame={frame} /> : seg.mode === 'bus' ? <BusArt frame={frame} /> : seg.mode === 'ferry' ? <FerryArt frame={frame} /> : <CarArt frame={frame} />}</g>;
     return (
         <svg width={REEL.width} height={REEL.height} style={{ position: 'absolute', inset: 0 }}>
-            <Badge x={x} y={y} color={seg.mode === 'flight' ? '#2a5d8f' : '#fff4e0'} beat={beat} appear={appear}>
+            <Badge x={x} y={y} color={seg.mode === 'flight' ? '#2a5d8f' : seg.mode === 'ferry' ? '#1e6f8f' : '#fff4e0'} beat={beat} appear={appear}>
                 {art}
             </Badge>
         </svg>

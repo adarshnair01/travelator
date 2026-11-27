@@ -8,6 +8,7 @@ export const MODES = {
     car: { label: 'Car', color: '#ef5b6f' },
     bike: { label: 'Bike', color: '#ff7a1a' },
     bus: { label: 'Bus', color: '#9d6cf7' },
+    ferry: { label: 'Ferry', color: '#14b8a6' },
 };
 
 const R_EARTH_KM = 6371;
@@ -126,7 +127,7 @@ export function buildTimeline(rawStops) {
     push({ type: 'intro', dur: TIMING.intro, cam: overview });
 
     let travelled = 0;
-    const byMode = { flight: 0, train: 0, car: 0, bike: 0, bus: 0 };
+    const byMode = { flight: 0, train: 0, car: 0, bike: 0, bus: 0, ferry: 0 };
     stops.forEach((stop, i) => {
         if (i > 0) {
             const from = stops[i - 1];
@@ -257,7 +258,7 @@ export const legSeed = (a, b) =>
  * Points from p0 to p1 (any 2D space) shaped by travel mode:
  *  - flight: one smooth parabolic arc bulging "up"
  *  - car, bike and bus: a winding road, several bends of decreasing size
- *  - train: a gentle sweeping curve, like a rail line
+ *  - train and ferry: a gentle sweeping curve, like a rail line or a sea lane
  * Bends taper to zero at both ends so the line always meets its stops.
  * upIsNegativeY: true on screen (y grows down), false for latitude/longitude.
  * amp scales the bends of car and train curves (negative mirrors them).
@@ -279,7 +280,7 @@ export function curvePoints(p0, p1, mode, seed, { samples = 120, upIsNegativeY =
         return pts;
     }
     const rnd = seededRandom(seed);
-    const waves = mode === 'train'
+    const waves = mode === 'train' || mode === 'ferry'
         ? [[1, 0.1], [2, 0.03]] // long, gentle sweeps
         : [[1.2, 0.08], [2.6, 0.035], [5, 0.008]]; // a road's big bends, smaller turns and a little texture
     const parts = waves.map(([f, amp]) => ({

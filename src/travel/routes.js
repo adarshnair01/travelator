@@ -1,9 +1,11 @@
-// Route shapes for car and train legs, as [lng, lat] points that stay on land.
+// Route shapes for every leg but flights, as [lng, lat] points that stay on land (or, for ferries, on water).
 //
 // Car, bike and bus legs follow real roads from the public OSRM demo server (OpenStreetMap data).
 // Train legs use the same corridor, smoothed into long sweeps, since there is no free
 // rail router. If routing fails (no road between the places, or the service is down)
 // we fall back to a drawn curve, choosing the shape that keeps the most of it on land.
+// Ferry legs are the opposite: a gentle curve that stays on water, or a path found
+// over the sea on the world map when the coast is in the way.
 // Flights keep their arc in the reel and have no stored route.
 import { geoBounds, geoContains, geoMercator, geoPath } from 'd3-geo';
 import { curvePoints, distanceKm, legSeed, mercX, mercY } from './geo';
@@ -33,15 +35,16 @@ const inBox = ([lng, lat], [[w, s], [e, n]]) =>
 const onLand = (land, p) => land.some(({ f, b }) => inBox(p, b) && geoContains(f, p));
 
 // Share of the route (ignoring the first and last few points, where coastal
-// stops can sit just off the simplified coastline) that is over water.
-function seaShare(land, pts) {
+// stops can sit just off the simplified coastline) that is over water, or with
+// water: true, over land (what a ferry should avoid).
+function seaShare(land, pts, water = false) {
     const skip = Math.max(1, Math.floor(pts.length * 0.04));
-    let sea = 0, n = 0;
+    let wrong = 0, n = 0;
     for (let i = skip; i < pts.length - skip; i += 1) {
         n += 1;
-        if (!onLand(land, pts[i])) sea += 1;
+        if (onLand(land, pts[i]) === water) wrong += 1;
     }
-    return n ? sea / n : 0;
+    return n ? wrong / n : 0;
 }
 
 // ---- Shapes ---------------------------------------------------------------------
@@ -50,7 +53,7 @@ const toLngLat = ([x, y]) => [(x * 180) / Math.PI, (Math.atan(Math.sinh(y)) * 18
 
 // Drawn curve in Mercator space (so it matches the reel), tried with smaller and
 // mirrored bends. Returns the shape with the least water, and how much water that is.
-async function bestCurve(from, to, mode) {
+async function bestCurve(from, to, mode, water = false) {
     const land = await getLand();
     const a = [mercX(from.lng), mercY(from.lat)];
     const b = [mercX(to.lng), mercY(to.lat)];
@@ -59,7 +62,7 @@ async function bestCurve(from, to, mode) {
     for (const amp of [1, 0.6, 0.3, 0]) {
         for (const flip of amp ? [false, true] : [false]) {
             const pts = curvePoints(a, b, mode, seed, { samples: 90, upIsNegativeY: false, amp: flip ? -amp : amp }).map(toLngLat);
-            const share = seaShare(land, pts);
+            const share = seaShare(land, pts, water);
             if (!best || share < best.share) best = { pts, share };
             if (share === 0) return best;
         }
@@ -68,10 +71,11 @@ async function bestCurve(from, to, mode) {
 }
 
 // Overland path for legs where a simple curve would cross the sea (a curving coast,
-// a bay). The land around the leg is drawn into a small grid, the cheapest path over
-// land cells is found (A*), kept away from the coast so smoothing can't push it
-// offshore, then simplified and rounded. Returns null when no overland path exists.
-async function overlandPath(from, to) {
+// a bay), or with water: true an over-sea path for ferries where a curve would cut
+// across land. The area around the leg is drawn into a small grid, the cheapest path
+// over the right kind of cell is found (A*), kept away from the coast so smoothing
+// can't push it across, then simplified and rounded. Returns null when there is none.
+async function gridPath(from, to, water = false) {
     const world = await loadWorld();
     const ax = mercX(from.lng), ay = mercY(from.lat), bx = mercX(to.lng), by = mercY(to.lat);
     const span = Math.max(Math.abs(bx - ax), Math.abs(by - ay), 1e-4);
@@ -90,13 +94,14 @@ async function overlandPath(from, to) {
     geoPath(projection, ctx)(world.land);
     ctx.fill();
     const px = ctx.getImageData(0, 0, W, H).data;
-    const isLand = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i += 1) isLand[i] = px[i * 4 + 3] > 127 ? 1 : 0;
+    // ok: cells the leg may cross (land, or sea for a ferry)
+    const ok = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i += 1) ok[i] = (px[i * 4 + 3] > 127) !== water ? 1 : 0;
 
-    // Distance (in cells) from the sea, by breadth-first search from every water cell
+    // Distance (in cells) from the coast, by breadth-first search from every cell it may not cross
     const dist = new Int32Array(W * H).fill(-1);
     let queue = [];
-    for (let i = 0; i < W * H; i += 1) if (!isLand[i]) { dist[i] = 0; queue.push(i); }
+    for (let i = 0; i < W * H; i += 1) if (!ok[i]) { dist[i] = 0; queue.push(i); }
     while (queue.length) {
         const next = [];
         for (const i of queue) {
@@ -110,24 +115,24 @@ async function overlandPath(from, to) {
         }
         queue = next;
     }
-    for (let i = 0; i < W * H; i += 1) if (dist[i] < 0) dist[i] = W + H; // all land: far from any sea
+    for (let i = 0; i < W * H; i += 1) if (dist[i] < 0) dist[i] = W + H; // nothing to avoid nearby
 
     const toCell = (x, y) => [Math.min(W - 1, Math.max(0, Math.floor((x - minX) / cell))), Math.min(H - 1, Math.max(0, Math.floor((maxY - y) / cell)))];
-    // Coastal stops can sit in a "water" cell of the simplified coastline: start from the nearest land
-    const nearestLand = ([cx, cy]) => {
-        for (let r = 0; r <= 8; r += 1) {
+    // Coastal stops can sit on the wrong side of the simplified coastline: start from the nearest usable cell
+    const nearestOk = ([cx, cy]) => {
+        for (let r = 0; r <= (water ? 14 : 8); r += 1) {
             for (let dy = -r; dy <= r; dy += 1) for (let dx = -r; dx <= r; dx += 1) {
                 const x = cx + dx, y = cy + dy;
-                if (x >= 0 && y >= 0 && x < W && y < H && isLand[y * W + x]) return y * W + x;
+                if (x >= 0 && y >= 0 && x < W && y < H && ok[y * W + x]) return y * W + x;
             }
         }
         return -1;
     };
-    const start = nearestLand(toCell(ax, ay));
-    const goal = nearestLand(toCell(bx, by));
+    const start = nearestOk(toCell(ax, ay));
+    const goal = nearestOk(toCell(bx, by));
     if (start < 0 || goal < 0) return null;
 
-    // A* over land cells; steps close to the coast cost more
+    // A* over usable cells; steps close to the coast cost more
     const gx = goal % W, gy = (goal / W) | 0;
     const g = new Float64Array(W * H).fill(Infinity);
     const came = new Int32Array(W * H).fill(-1);
@@ -166,7 +171,7 @@ async function overlandPath(from, to) {
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
             const j = ny * W + nx;
-            if (!isLand[j]) continue;
+            if (!ok[j]) continue;
             const cost = g[i] + len * (1 + 3 / Math.min(dist[j], 6));
             if (cost < g[j]) {
                 g[j] = cost;
@@ -190,10 +195,24 @@ async function landSafeShape(from, to, mode) {
     const curve = await bestCurve(from, to, mode);
     if (curve.share === 0) return curve.pts;
     try {
-        const path = await overlandPath(from, to);
+        const path = await gridPath(from, to);
         if (path && seaShare(await getLand(), path) < curve.share) return path;
     } catch {
         // no canvas (very old browser): keep the curve
+    }
+    return curve.pts;
+}
+
+// Ferries: a gentle curve if it stays on water, else a path over the sea.
+// A river or lake crossing too small for the world map keeps the curve.
+async function seaSafeShape(from, to) {
+    const curve = await bestCurve(from, to, 'ferry', true);
+    if (curve.share === 0) return curve.pts;
+    try {
+        const path = await gridPath(from, to, true);
+        if (path && seaShare(await getLand(), path, true) < curve.share) return path;
+    } catch {
+        // no canvas: keep the curve
     }
     return curve.pts;
 }
@@ -264,18 +283,20 @@ async function roadRoute(from, to, signal) {
 
 const cache = new Map();
 
-// Modes that travel over land and get a stored route (flights fly an arc instead)
-export const ROAD_MODES = new Set(['car', 'bike', 'bus', 'train']);
+// Modes that get a stored route: over land, or over water for ferries (flights fly an arc instead)
+const ROAD_MODES = new Set(['car', 'bike', 'bus', 'train']);
+export const ROUTED_MODES = new Set([...ROAD_MODES, 'ferry']);
 
-/** Land-following [lng, lat] points from `from` to `to`, or null for flights. */
+/** Land-following (or, for ferries, sea-following) [lng, lat] points from `from` to `to`, or null for flights. */
 export function getRoute(from, to, mode, signal) {
-    if (!ROAD_MODES.has(mode)) return Promise.resolve(null);
+    if (!ROUTED_MODES.has(mode)) return Promise.resolve(null);
     const key = routeKey(from, to, mode);
     if (!cache.has(key)) {
         const job = (async () => {
             const spanDeg = Math.hypot(to.lng - from.lng, to.lat - from.lat);
             let pts;
-            try {
+            if (mode === 'ferry') pts = await seaSafeShape(from, to);
+            else try {
                 const road = await roadRoute(from, to, signal);
                 if (mode !== 'train') {
                     pts = capPoints(road, spanDeg * 0.0015);
